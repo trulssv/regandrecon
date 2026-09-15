@@ -211,32 +211,8 @@ class VelocityIntegrator(torch.nn.Module):
     
     def _square(self, phi: torch.Tensor)->torch.Tensor:
         """Compose the deformations phi with itself"""
-        # Here we would implement the logic for composing this operator with another operator, which is necessary for the LDDMM framework.
-
         return self._compose(phi, phi)
 
-        # NOTE: we can use grid_sample to compute the composition of the deformation with itself:
-        
-        if phi.dim() == 5:
-            B, D, H, W, C = phi.shape
-            assert C == 3, f"Expected deformation to have 3 channels for 3D deformation, but got {C} channels."
-            phi_as_img = torch.permute(phi, (0, 4, 1, 2, 3))  # Permute phi to have the shape (B, C, D, H, W) for grid_sample
-
-            phi_squared = grid_sample(phi_as_img, phi, align_corners=True, mode="bilinear", padding_mode="border")  # Compute the composition of the deformation with itself using grid_sample
-
-            phi_squared = torch.permute(phi_squared, (0, 2, 3, 4, 1))  # Permute back to the original shape (B, D, H, W, C)
-
-        else:
-            B, H, W, C = phi.shape
-            assert C == 2, f"Expected deformation to have 2 channels for 2D deformation, but got {C} channels."
-            phi_as_img = torch.permute(phi, (0, 3, 1, 2))  # Permute phi to have the shape (B, C, H, W) for grid_sample
-
-            phi_squared = grid_sample(phi_as_img, phi, align_corners=True, mode="bilinear", padding_mode="border")  # Compute the composition of the deformation with itself using grid_sample
-
-            phi_squared = torch.permute(phi_squared, (0, 2, 3, 1))  # Permute back to the original shape (B, H, W, C)
-
-   
-        return phi_squared
 
     def _scale(self, v: torch.Tensor, N: int | None = None) -> torch.Tensor:
         """Scale the velocity field by a given factor."""
@@ -280,62 +256,6 @@ class VelocityIntegrator(torch.nn.Module):
 
         return identity_grid
 
-    @overload
-    def forward(self, v: torch.Tensor, superres: bool = False) -> torch.Tensor:
-        ...
-
-    @overload
-    def forward(self, v: torch.Tensor, superres: bool = True) -> list[torch.Tensor]:
-        ...
-
-    @overload
-    def forward(self, v: list[torch.Tensor], superres: bool = False) -> list[torch.Tensor]:
-        ...
-    
-    @overload
-    def forward(self, v: list[torch.Tensor], superres: bool = True) -> list[torch.Tensor]:
-        ...
-
-    def forward(self, v: torch.Tensor | list[torch.Tensor], superres: bool = False) -> torch.Tensor | list[torch.Tensor]:
-        """Integrate the velocity field to obtain the deformation.
-        
-        input
-        -----
-        v : torch.Tensor | list[torch.Tensor]
-            The (possibly) time-dependent velocity field to be integrated. If it is a list, it should contain tensors of the same shape which represents the velocity field at different time steps. The tensors can be a 4D tensor for 2D deformation (B, H, W, 2) or a 5D tensor for 3D deformation (B, D, H, W, 3).
-        superres : bool, optional
-            Whether to return a temporally super-resolved list of deformation fields. If True, the output will be a list of tensors representing the deformation at different time steps. Default is False.
-        output
-        ------
-        torch.Tensor | list[torch.Tensor]
-            The resulting deformation field after integrating the velocity field. The shape will match the input velocity field, except for the channel dimension which corresponds to the spatial dimensions (2 for 2D, 3 for 3D).
-        
-        """
-        # Here we would implement the actual integration logic, which typically involves solving an ODE to obtain the deformation from the velocity field.
-        
-        assert isinstance(v, torch.Tensor) or (isinstance(v, list) and all(isinstance(vi, torch.Tensor) for vi in v)), f"Expected input to be a torch.Tensor or a list of torch.Tensors, but got {type(v)}."
-        assert v.dim() in (4, 5) if isinstance(v, torch.Tensor) else all(isinstance(vi, torch.Tensor) and vi.dim() in (4, 5) for vi in v), f"Expected velocity field to have 4 dimensions (B, H, W, 2) for 2D or 5 dimensions (B, D, H, W, 3) for 3D, but got {v.dim() if isinstance(v, torch.Tensor) else v[0].dim()} dimensions."
-
-        if isinstance(v, list): # Solve the cases where the input is a list of velocity fields recursively
-            if not superres:
-                return [self.forward(vi, superres=superres) for vi in v]
-            else: # superres is True
-                return list(chain.from_iterable([self.forward(vi, superres=superres) for vi in v])) # list of tensors
-
-
-        # Check and validate the velocity field dimensions and channels
-
-        self._validate_velocity(v)
-
-        if self.id is None:
-            self._init_shape(tuple(v.shape[1:-1]))  # Infer the shape from the input velocity field, as advertised in the constructor warning.
-
-        if self.integration == "scaling_and_squaring":
-            return self.scale_and_square(v, superres=superres)
-        elif self.integration == "euler":
-            return self.euler(v, superres=superres)
-        else:
-            raise ValueError(f"Unsupported integration method: {self.integration}")
 
     def scale_and_square(self, v: torch.Tensor, N: int | None = None, superres:bool=False) -> torch.Tensor | list[torch.Tensor]:
         """Scale and square the velocity field to obtain the deformation field.
@@ -398,6 +318,65 @@ class VelocityIntegrator(torch.nn.Module):
         for _ in range(N-1):
             phi = self._compose(phi, phi0)  # Euler integration step
         return phi
+
+
+    @overload
+    def forward(self, v: torch.Tensor, superres: bool = False) -> torch.Tensor:
+        ...
+
+    @overload
+    def forward(self, v: torch.Tensor, superres: bool = True) -> list[torch.Tensor]:
+        ...
+
+    @overload
+    def forward(self, v: list[torch.Tensor], superres: bool = False) -> list[torch.Tensor]:
+        ...
+    
+    @overload
+    def forward(self, v: list[torch.Tensor], superres: bool = True) -> list[torch.Tensor]:
+        ...
+
+    def forward(self, v: torch.Tensor | list[torch.Tensor], superres: bool = False) -> torch.Tensor | list[torch.Tensor]:
+        """Integrate the velocity field to obtain the deformation.
+        
+        input
+        -----
+        v : torch.Tensor | list[torch.Tensor]
+            The (possibly) time-dependent velocity field to be integrated. If it is a list, it should contain tensors of the same shape which represents the velocity field at different time steps. The tensors can be a 4D tensor for 2D deformation (B, H, W, 2) or a 5D tensor for 3D deformation (B, D, H, W, 3).
+        superres : bool, optional
+            Whether to return a temporally super-resolved list of deformation fields. If True, the output will be a list of tensors representing the deformation at different time steps. Default is False.
+        output
+        ------
+        torch.Tensor | list[torch.Tensor]
+            The resulting deformation field after integrating the velocity field. The shape will match the input velocity field, except for the channel dimension which corresponds to the spatial dimensions (2 for 2D, 3 for 3D).
+        
+        """
+        # Here we would implement the actual integration logic, which typically involves solving an ODE to obtain the deformation from the velocity field.
+        
+        assert isinstance(v, torch.Tensor) or (isinstance(v, list) and all(isinstance(vi, torch.Tensor) for vi in v)), f"Expected input to be a torch.Tensor or a list of torch.Tensors, but got {type(v)}."
+        assert v.dim() in (4, 5) if isinstance(v, torch.Tensor) else all(isinstance(vi, torch.Tensor) and vi.dim() in (4, 5) for vi in v), f"Expected velocity field to have 4 dimensions (B, H, W, 2) for 2D or 5 dimensions (B, D, H, W, 3) for 3D, but got {v.dim() if isinstance(v, torch.Tensor) else v[0].dim()} dimensions."
+
+        if isinstance(v, list): # Solve the cases where the input is a list of velocity fields recursively
+            if not superres:
+                return [self.forward(vi, superres=superres) for vi in v]
+            else: # superres is True
+                return list(chain.from_iterable([self.forward(vi, superres=superres) for vi in v])) # list of tensors
+
+
+        # Check and validate the velocity field dimensions and channels
+
+        self._validate_velocity(v)
+
+        if self.id is None:
+            self._init_shape(tuple(v.shape[1:-1]))  # Infer the shape from the input velocity field, as advertised in the constructor warning.
+
+        if self.integration == "scaling_and_squaring":
+            return self.scale_and_square(v, superres=superres)
+        elif self.integration == "euler":
+            return self.euler(v, superres=superres)
+        else:
+            raise ValueError(f"Unsupported integration method: {self.integration}")
+
 
 
     
@@ -525,11 +504,12 @@ class FlowDeformationOperator(torch.nn.Module):
             x: torch.Tensor
                 The input image to be deformed. For 2D images, the shape should be (B, H, W). For 3D images, the shape should be (B, D, H, W).
             v: torch.Tensor | list[torch.Tensor]
-                The velocity field used to compute the deformation. It is either time dependent (list of Tensors) or static (a single Tensor). For 2D images, all tensors should be 4D: (B, H, W, 2). For 3D images, the tensors should be 5D: (B, T, D, H, W, 3).
+                The velocity field used to compute the deformation. It is either time dependent (list of Tensors) or static (a single Tensor). For 2D images, all tensors should be 4D: (B, H, W, 2). For 3D images, the tensors should be 5D: (B, D, H, W, 3).
             superres: bool, optional
                 Whether to return a temporally super-resolved list of deformation fields. If True, the output will be a list of tensors representing the deformation at different time steps. Default is False.
         output: torch.Tensor | list[torch.Tensor]
-                The deformed image sequence. For 2D images, the shape will be (B, T+1, H, W). For 3D images, the shape will be (B, T+1, D, H, W). The first element corresponds to the original image, and the subsequent elements correspond to the deformed images at each time step.
+                The deformed image (sequence). If v is time-dependent (a list of tensors), the output will be a list of deformed images at each time step. If superres is True, then the output will be a temporally super-resolved list of deformed images. Only if v is a single static tensor and superres is False, the output will be a single deformed image tensor rather than a list.
+                For 2D images, the shape will be (B, H, W). For 3D images, the shape will be (B, D, H, W). The first element corresponds to the original image, and the subsequent elements correspond to the deformed images at each time step.
         """
 
         # Validate the input image and velocity field for consistency in terms of dimensions, channels, and batch size.
