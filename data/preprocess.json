@@ -1,0 +1,19 @@
+{
+    "SHAPE": [50, 256, 256],
+    "INITIAL_RANGE": [-1, 1],
+    "PROC_RANGE": [0, 1],
+    "time_bins": 10,
+    "dTYPE": "float32",
+    "HU_RANGE": [-1024, 3072],
+    "mu_wa_mm": 0.019,
+    "pixel_spacing_mm": [2.1054, 2.1054],
+    "slice_thickness_mm": 6.18,
+    
+
+    "train_val_test_split": {
+        "train": 0.7,
+        "val": 0.15,
+        "test": 0.15,
+        "random_seed": 42
+    }
+}

@@ -1,0 +1,5 @@
+{
+    "ROOT": "/mnt/data/LDDMM/processed",
+    "ORGANIZATION": ["patient", "study", "series"],
+    "SKIP_STUDIES": ["16701739", "84231138", "18677610", "63993221", "09082784", "04691850", "27484786", "84300604"]
+}

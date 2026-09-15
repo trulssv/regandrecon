@@ -1,0 +1,40 @@
+{
+  "name": "regandrecon-claude-sandbox",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "features": {
+    "ghcr.io/devcontainers/features/python:1": {
+      "version": "3.11"
+    },
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "22"
+    }
+  },
+  "remoteUser": "vscode",
+  "workspaceFolder": "/workspace/RegAndRecon",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace/RegAndRecon,type=bind",
+  "runArgs": [
+    "--cap-drop=ALL",
+    "--security-opt=no-new-privileges:true",
+    "--pids-limit=512",
+    "--memory=8g",
+    "--cpus=4",
+    "--gpus=all"
+  ],
+  "hostRequirements": {
+    "gpu": true
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-toolsai.jupyter"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/home/vscode/miniforge3/envs/regandrecon/bin/python"
+      }
+    }
+  },
+  "postCreateCommand": "bash .devcontainer/post-create.sh"
+}

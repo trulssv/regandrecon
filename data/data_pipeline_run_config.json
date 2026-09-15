@@ -1,0 +1,199 @@
+{
+    "steps": {
+        "denoising": false,
+        "segmentation": false,
+        "projection": true,
+        "add_noise": true,
+        "adjoint": false,
+        "fbp": false,
+        "visualization": false,
+        "save_results": true
+    },
+    "data_cfg": {
+        "ROOT": "/mnt/data/LDDMM/processed",
+        "ORGANIZATION": [
+            "patient",
+            "study",
+            "series"
+        ],
+        "SKIP_STUDIES": [
+            "16701739",
+            "84231138",
+            "18677610",
+            "63993221",
+            "09082784",
+            "04691850",
+            "27484786",
+            "84300604"
+        ]
+    },
+    "preprocess_cfg": {
+        "SHAPE": [
+            50,
+            256,
+            256
+        ],
+        "INITIAL_RANGE": [
+            -1,
+            1
+        ],
+        "PROC_RANGE": [
+            0,
+            1
+        ],
+        "time_bins": 10,
+        "dTYPE": "float32",
+        "HU_RANGE": [
+            -1024,
+            3072
+        ],
+        "mu_wa_mm": 0.019,
+        "pixel_spacing_mm": [
+            2.1054,
+            2.1054
+        ],
+        "slice_thickness_mm": 6.18,
+        "train_val_test_split": {
+            "train": 0.7,
+            "val": 0.15,
+            "test": 0.15,
+            "random_seed": 42
+        }
+    },
+    "ray_trafo_cfg": {
+        "geometry": "cone",
+        "num_angles": 180,
+        "axis": [
+            1,
+            0,
+            0
+        ],
+        "detector_shape": [
+            256,
+            256
+        ],
+        "detector_extent_mm": [
+            1500,
+            800
+        ],
+        "mu_wa_mm": 0.019,
+        "N0": 10000000.0,
+        "ep": 1e-06,
+        "cone": {
+            "src_radius": 600.0,
+            "det_radius": 600.0,
+            "pitch": null
+        },
+        "helical": {
+            "src_radius": 600.0,
+            "det_radius": 600.0,
+            "pitch": 5.0,
+            "num_angles_per_rotation": 180,
+            "num_rotations": 8.0
+        },
+        "parallel": {
+            "src_radius": null,
+            "det_radius": null,
+            "pitch": null
+        },
+        "dynamic": {
+            "src_radius": 1000.0,
+            "det_radius": 1000.0,
+            "num_angles_per_time_bin": 180,
+            "num_projections_per_time_bin": 90,
+            "pitch": null
+        }
+    },
+    "meta_data": {
+        "patient_id": [
+            "104_HM10395"
+        ],
+        "study_date": [
+            "19980929"
+        ],
+        "modality": [
+            "CT"
+        ],
+        "manufacturer": [
+            "ADAC"
+        ],
+        "orientation": {
+            "row": [
+                [
+                    [
+                        1.0
+                    ]
+                ],
+                [
+                    [
+                        0.0
+                    ]
+                ],
+                [
+                    [
+                        0.0
+                    ]
+                ]
+            ],
+            "column": [
+                [
+                    [
+                        0.0
+                    ]
+                ],
+                [
+                    [
+                        1.0
+                    ]
+                ],
+                [
+                    [
+                        0.0
+                    ]
+                ]
+            ],
+            "slice": [
+                [
+                    [
+                        0.0
+                    ]
+                ],
+                [
+                    [
+                        0.0
+                    ]
+                ],
+                [
+                    [
+                        1.0
+                    ]
+                ]
+            ]
+        },
+        "pixel_spacing": [
+            [
+                1.0527
+            ],
+            [
+                1.0527
+            ]
+        ],
+        "slice_thickness": [
+            3.0
+        ],
+        "num_slices": [
+            103
+        ],
+        "resampled_pixel_spacing": [
+            [
+                2.1054
+            ],
+            [
+                2.1054
+            ]
+        ],
+        "resampled_slice_thickness": [
+            6.18
+        ]
+    }
+}

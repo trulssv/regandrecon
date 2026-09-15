@@ -1,0 +1,46 @@
+# from tissue import *# should be updated to TS labels and not WW labels
+tissue_types = {
+'bone' : [
+    #"Skeleton - cartilage",
+    "Male shoulder girdle - sternum",
+    "Sacrum - male",
+    "Sacrum - female",
+    "Male vertebral column inc, cartilage - D6, L3",
+    "Male vertebral column inc, cartilage - whole",
+    "Male vertebral column inc, cartilage - C4"
+    "Male vertebral column exc, cartilage - D6, L3",
+    "Male vertebral column exc, cartilage - C4",
+    "Humerus - spherical head",
+    "Femur - conical trochanter",
+    "Humerus - whole specimen",
+    "Male ribs - 2nd, 6th",
+    "Pelvic bones innominate - male",
+    "Femur - total bone",
+    "Femur - whole specimen",
+    "Pelvic bones innominate - female",
+    "Humerus - total bone",
+    "Male shoulder girdle - clavicle",
+    "Humerus - cylindrical shaft",
+    "Male ribs - 10th",
+    "Cranium - male and female",
+    "Mandible - male and female",
+    "Femur - cylindrical shaft",
+    "Skeletal - cortical bone",
+    "Pelvic bones innominate",
+    "Sacrum",
+    "Humerus - whole specimen",
+    "Male shoulder girdle - clavicle",
+    "Femur - whole speciemen",
+    "Pelvic bones innominate",
+    "Cranium",
+    "Male ribs - 2nd, 6th",
+    "Male ribs - 10th",
+    "Male shoulder girdle - sternum",
+    "Skeletal - cortical bone"
+],
+'fat' : [
+    "Adipose tissue - 1",
+    "Adipose tissue - 2",
+    "Adipose tissue - 3",
+]
+}

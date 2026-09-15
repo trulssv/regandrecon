@@ -1,0 +1,22 @@
+{
+    "image": {
+        "l1": 0,
+        "l2": 1,
+        "ssim": 0,
+        "ngf": 0,
+        "vgg16": 0
+    },
+    "consistency": {
+        "l1": 0,
+        "l2": 1,
+        "ssim": 0,
+        "ngf": 0,
+        "vgg16": 0
+    },
+    "regularization": {
+        "helmholtz": 1e-6, 
+        "tv": 1e-3,
+        "drift": 1e-2
+    }
+}
+

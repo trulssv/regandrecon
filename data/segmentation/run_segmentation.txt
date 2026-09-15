@@ -1,0 +1,1 @@
+python3 segmentation.py --dir "/media/data/trulssv/Antropomorphic_Phantoms/" --cases "2:5" --license_number aca_E405RX375O77FR --ct_filename "imagingHU.nii.gz"

@@ -1,0 +1,2 @@
+python3 material_extractor.py --datadir "/media/data/joelva/datasets/kits23/" --ct_filename "imaging.nii.gz" --savedir "/media/data/trulssv/Antropomorphic_Phantoms/Simulations270625" --cases "100:103"
+

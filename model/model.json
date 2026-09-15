@@ -1,0 +1,8 @@
+{
+    "lambda_channels": [32, 32, 32],
+    "gamma_channels": [32, 32, 32],
+    "sigma_channels": [32, 32, 32],
+    "dropout": 0.0,
+    "batch_norm": true,
+    "hlpd_iterations": 6
+}

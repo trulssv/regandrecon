@@ -1,0 +1,44 @@
+{
+    "geometry": "cone",
+    "num_angles": 180,
+    "axis": [1, 0, 0],
+    "detector_shape": [256, 256],
+    "detector_extent_mm": [1500, 800],
+    "mu_wa_mm": 0.019,
+    "N0": 1e7,
+    "ep" : 1e-6,
+
+
+    "cone": {
+
+        "src_radius": 600.0,
+        "det_radius": 600.0,
+        "pitch": null
+
+    },
+
+    "helical": {
+
+        "src_radius": 600.0,
+        "det_radius": 600.0,
+        "pitch": 5.0,
+        "num_angles_per_rotation": 180,
+        "num_rotations": 8.0
+
+    },
+
+    "parallel": {
+
+        "src_radius": null,
+        "det_radius": null,
+        "pitch": null
+    },
+
+    "dynamic": {
+        "src_radius": 1000.0,
+        "det_radius": 1000.0,
+        "num_angles_per_time_bin": 45,
+        "num_projections_per_time_bin": 90,
+        "pitch": null
+    }
+}

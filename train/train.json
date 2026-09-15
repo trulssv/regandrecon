@@ -1,0 +1,26 @@
+{
+    "optimizer": {
+        "type": "Adam",
+        "params": {
+            "lr": 1e-5,
+            "weight_decay": 1e-6
+
+        }
+    },
+    "scheduler": {
+        "type": "StepLR",
+        "params": {
+            "step_size": 200,
+            "gamma": 0.5
+        }
+    },
+
+    "training": {
+        "num_epochs": 500,
+        "log_interval": 25,
+        "save_interval": 25,
+        "checkpoint_dir": "/mnt/data/LDDMM/checkpoints"
+    },
+    "device": "cuda:0",
+    "batch_size": 1
+}

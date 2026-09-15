@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+/visualization/plots
+/visualization/gifs/
+/test/plots
+*.png
+*.gif
+*.jpg
+*.jpeg
+*.pt
+*.pth
+*.npy
+*.npz
+*.log
