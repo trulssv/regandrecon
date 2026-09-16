@@ -14,6 +14,9 @@
   "remoteUser": "vscode",
   "workspaceFolder": "/workspace/RegAndRecon",
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspace/RegAndRecon,type=bind",
+  "mounts": [
+    "source=/media/trulssv/LDDMM,target=/media/trulssv/LDDMM,type=bind,readonly"
+  ],
   "runArgs": [
     "--cap-drop=ALL",
     "--security-opt=no-new-privileges:true",
@@ -29,7 +32,8 @@
     "vscode": {
       "extensions": [
         "ms-python.python",
-        "ms-toolsai.jupyter"
+        "ms-toolsai.jupyter",
+        "anthropic.claude-code"
       ],
       "settings": {
         "python.defaultInterpreterPath": "/home/vscode/miniforge3/envs/regandrecon/bin/python"
