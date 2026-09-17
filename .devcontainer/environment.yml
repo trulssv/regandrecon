@@ -135,10 +135,25 @@ dependencies:
   - zlib=1.3.2
   - zstd=1.5.7
   - pip:
-      - --extra-index-url https://download.pytorch.org/whl/cu121
-      - torch==2.5.1
-      - torchvision==0.20.1
-      - torchaudio==2.5.1
+      # NOTE: torch==2.5.1+cu121 (paired with numpy==2.5.2 above) is unusable for tomography: odl's
+      # dlpack-based torch interop (odl/core/space/base_tensors.py, dlpack_transfer) calls
+      # numpy.from_dlpack(arr, device=..., copy=...), which requires the tensor's __dlpack__ to accept a
+      # `dl_device` keyword -- torch only added that in a later release. Every RayTransform forward/adjoint
+      # call raised `TypeError: Tensor.__dlpack__() got an unexpected keyword argument 'dl_device'`.
+      # torch==2.14.0+cu126 does implement it (confirmed directly). cu126, not cu121/cu124, because
+      # PyTorch stopped publishing cu121 wheels past 2.5.1, and this needs to stay within the installed
+      # driver's supported CUDA *major* version (12.x) for GPU passthrough to keep working -- a cu13x
+      # build fails with "CUDA driver is too old" against this driver even though it installs fine.
+      - --extra-index-url https://download.pytorch.org/whl/cu126
+      - torch==2.14.0+cu126
+      - torchvision==0.29.0+cu126
+      - torchaudio==2.11.0+cu126
+      # CT projector backends for odl.applications.tomo.RayTransform -- neither was present before, so no
+      # geometry could actually run a forward/back-projection (impl='astra_cuda'/'astra_cpu'/'skimage' all
+      # unavailable). astra-toolbox covers 2D+3D and every geometry in operators/tomo/ray_trafo.py;
+      # scikit-image is kept too as a CPU fallback for the 2D-parallel-square case it supports.
+      - astra-toolbox==2.5.0
+      - scikit-image==0.26.0
       - array-api-compat==1.15.0
       - contourpy==1.3.3
       - cycler==0.12.1
@@ -148,9 +163,16 @@ dependencies:
       - llvmlite==0.49.0
       - matplotlib==3.11.1
       - numba==0.67.0
-      - odl==1.0.0b1
+      # odl==1.0.0b1 also has a broken `_fbp_filter` (odl/applications/tomo/analytic/filtered_back_projection.py):
+      # its 'ram-lak' branch was a no-op that never assigned `filt`, so RayTransform.FBP() raised
+      # `UnboundLocalError` unconditionally. Fixed upstream in this final 1.0.0 release (confirmed by
+      # reading its source). operators/tomo/ray_trafo.py additionally monkeypatches the same function to
+      # also fix a *separate*, still-unfixed bug (a callable `filter_type` is dead code because the
+      # variable is stringified before the `callable()` check) -- that patch is independent of this pin
+      # and still applies on top of it.
+      - odl==1.0.0
       - pyparsing==3.3.2
-      - pytest==8.3.5
+      - pytest==9.1.1
       - python-dateutil==2.9.0.post0
       - pywavelets==1.10.0
       - scipy==1.18.1

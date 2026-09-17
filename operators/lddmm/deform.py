@@ -1,9 +1,8 @@
 from os import stat
 
 import torch
-import odl
-from torch.nn.functional import grid_sample
-from typing import overload
+from torch.nn.functional import grid_sample, pad
+from typing import overload, Tuple
 from itertools import chain
 
 
@@ -15,7 +14,7 @@ class GroupAction(torch.nn.Module):
 
     # TODO: implement mass preserving action as well, which is defined as $\\mathcal{V}_{\phi} x = (x \circ \phi^{-1}) |D\phi^{-1}|$, where $|D\phi^{-1}|$ is the Jacobian determinant of the inverse deformation field.
 
-    def __init__(self, action: str = "geometric", extent: tuple[tuple[float, float], ...] | None = None, device: torch.device = torch.device("cpu")):
+    def __init__(self, action: str = "geometric", device: torch.device = torch.device("cpu")):
         super().__init__()
 
         # Get identity grid for the given space
@@ -24,7 +23,6 @@ class GroupAction(torch.nn.Module):
 
         self.action = action
         self.device = device
-        self.extent = extent
         self.to(self.device)
 
     def jacobian_determinant(self, phi: torch.Tensor) -> torch.Tensor:
@@ -44,18 +42,42 @@ class GroupAction(torch.nn.Module):
         spatial_dims = phi.shape[1:-1]
         C = phi.shape[-1]
 
-        extent = self.extent if self.extent else tuple((0.0, s) for s in spatial_dims) # Set physical extent to unit cube if no extent is provided
+        assert C == len(spatial_dims), f"Channel dimension {C} does not match the length of spatial_dims {len(spatial_dims)}."
 
-        assert C == len(spatial_dims) and (extent is None or C == len(extent)), f"Channel dimension {C} does not match the length of spatial_dims {len(spatial_dims)} or extent {len(extent) if extent is not None else 'None'}."
+        # NOTE: We are estimation the jacobian with central differences. torch.roll uses cyclic boundary conditions, which results incorrect derivatives at the boundaries.
+        # For this reason, we pad the input tensor before computing the central differences to avoid incorrect derivatives at the boundaries. Since pad operates on the last dimensions, we need to permute the channel dimension to right after the batch dimension before padding (so the last dimensions really are the spatial ones) and then permute it back afterwards.
 
-        Dphi= torch.zeros((B, *spatial_dims, C, C), device=self.device)
+        # Pad the input tensor with one voxel on each side along each spatial dimension
+        phi = pad(phi.permute(0, -1, *range(1, 1 + len(spatial_dims))), pad=[1, 1] * len(spatial_dims), mode='replicate').permute(0, *range(2, 2 + len(spatial_dims)), 1)
 
-        for i, (s, e) in enumerate(zip(spatial_dims, extent)):
-            spacing = (e[1] - e[0]) / s
+        # Dphi is built from the now-padded phi (each spatial dim is 2 voxels larger than spatial_dims),
+        # so it must be allocated at the padded size too -- it gets sliced back down to spatial_dims below.
+        Dphi = torch.zeros((B, *phi.shape[1:-1], C, C), device=self.device)
+
+        for i, s in enumerate(spatial_dims):
 
 
-            # Estimate the derivative with a difference quotient. We need to denormalize from [-1, 1] and divide by the spacing. 
-            Dphi[..., i] = s * (phi.roll(shifts=1, dims=i+1) - phi.roll(shifts=-1, dims=i+1)) / (2 * spacing)
+            # Estimate the derivative with a difference quotient.
+            # NOTE: We need to deal with the normalization.
+            # phi is assumed to be in the range [-1, 1], so we first denormalize it to the actual physical spacing by multiplying by (e[1]-e[0])/2.
+            # Then we divide by the spacing (e[1]-e[0])/(s-1) -- s-1, not s, since a length-s linspace over [-1,1] has s-1 steps between its
+            # endpoints. Equivalently, this simplifies to multiplying by (s-1)/2. We need to divide by an additional factor 2 for the central
+            # difference quotient, which yields (s-1)/4. The two roll() calls must be ordered as (forward - backward) = phi[k+1] - phi[k-1] to
+            # get the correctly-signed derivative; the previous (backward - forward) ordering computed its negative. In even spatial
+            # dimensionality (2D) that sign error cancels in the determinant (both factors flip together), so it can look right in 2D and still
+            # be wrong in 3D -- see test/test_jacobian.py's 3D mirror-flip case, which is specifically designed to catch this.
+            deriv =  (s-1) / 4 * (phi.roll(shifts=-1, dims=i+1) - phi.roll(shifts=1, dims=i+1))
+
+            # `deriv`'s channel axis is phi's own channel order, i.e. (x, y[, z]) -- required by grid_sample,
+            # which is why _identity_grid stacks channels that way (see geometric_action/_compose). Spatial
+            # axis `i` here is storage order, i.e. (D,)H,W -- the *reverse* of (x,y[,z]). So this axis's
+            # derivative column must be written to the reversed slot C-1-i, not i, or Dphi's rows (channels,
+            # x/y/z order) and columns (axes, storage order) end up mismatched: a determinant-sign-flipping
+            # permutation for both 2 and 3 channels (reversing 2 or 3 elements is always an odd permutation).
+            Dphi[..., C - 1 - i] = deriv
+
+        # Remove the padding from Dphi to match the original spatial dimensions
+        Dphi = Dphi[..., 1:-1, 1:-1, 1:-1, :, :] if len(spatial_dims) == 3 else Dphi[..., 1:-1, 1:-1, :, :]
 
         # Compute the determinant of Dphi:
 
@@ -234,6 +256,8 @@ class VelocityIntegrator(torch.nn.Module):
 
         assert len(shape) in (2, 3), f"Expected shape to be a 2-tuple (H, W) or 3-tuple (D, H, W), but got {shape}."
 
+        # NOTE: Even if the spatial dimensions use the (D, H, W) or (H, W) convention, corresponding to z, y, x or y, x, the channel order in the identity grid is always (x, y, z) for 3D and (x, y) for 2D, to match PyTorch's grid_sample expectations.
+
         if len(shape) == 3:
             d, h, w = shape
 
@@ -274,6 +298,9 @@ class VelocityIntegrator(torch.nn.Module):
             N = self.N
 
         v = self._scale(v, N)  # Scale the velocity field for the scaling and squaring method of integration
+
+        assert self.id is not None, "Identity grid (self.id) must be initialized."
+
         phi = self.id - v  # Initial deformation is the identity grid minus the velocity field at time step t
 
         if superres: # Return all intermediate deformation fields
@@ -303,6 +330,8 @@ class VelocityIntegrator(torch.nn.Module):
         """
         if N is None:
             N = self.N
+
+        assert self.id is not None, "Identity grid (self.id) must be initialized."
 
         phi0 = self.id - v / N
 
@@ -378,22 +407,19 @@ class VelocityIntegrator(torch.nn.Module):
             raise ValueError(f"Unsupported integration method: {self.integration}")
 
 
-
-    
-    
 class FlowDeformationOperator(torch.nn.Module):
     """This class implements the flow deformation operator, which takes as input a time dependent velocity field and a template, and outputs a deformed sequence of images. 
     This is implemented by first integrating the velocity field to obtain the deformation field, and then applying the group action to deform the image using the obtained deformation field."""
 
-    def __init__(self, N: int| None=None, action: str="geometric", integration: str="scaling_and_squaring", shape: tuple | None = None, extent: tuple[tuple[float, float], ...] | None = None, device: torch.device = torch.device("cpu")):
+    def __init__(self, N: int| None=None, action: str="geometric", integration: str="scaling_and_squaring", shape: Tuple[int, ...] | None = None, extent: Tuple[float, ...] | None = None, device: torch.device = torch.device("cpu")):
         """
         Initialize the flow deformation operator.
 
         Parameters:
         - N: Number of integration steps for the velocity field.
         - action: Type of group action to apply ("geometric" by default).
-        - shape: Shape of the input image.
-        - extent: Spatial extent of the image.
+        - shape: Shape of the input image (tuple of ints).
+        - extent: Physical extent of the input image (tuple of floats).
         - device: Torch device to use.
         """
         super().__init__() 
@@ -404,13 +430,15 @@ class FlowDeformationOperator(torch.nn.Module):
 
 
         self.velocity_integrator = VelocityIntegrator(N, integration, shape, device)  # Velocity integrator for integrating the velocity field to obtain the deformation field
-        self.group_action = GroupAction(action, extent, device)  # Group action for applying the deformation to the image
+        self.group_action = GroupAction(action, device)  # Group action for applying the deformation to the image
         self.N = N  # Store the number of integration steps
 
         self.action = action  # Store the type of group action to apply
         self.integration = integration  # Store the integration method for the velocity field
 
+        self.shape = shape
         self.extent = extent
+
         self.device = device
         self.to(self.device)
 
@@ -468,14 +496,25 @@ class FlowDeformationOperator(torch.nn.Module):
         shape = v.shape
         assert dim in (4, 5), f"Expected velocity fields to have 4 dimensions (B, H, W, C) for 2D or 5 dimensions (B, D, H, W, C) for 3D, but got {dim} dimensions {shape}."
 
-   
+        if self.extent is None:
+            print("Warning: extent is not set. Using default extent based on shape.")
+            extent = tuple(float(s) for s in shape[1:-1])
+        else:
+            extent = self.extent
+
+
+
         C = shape[-1]  # Number of channels in the deformation field (2 for 2D, 3 for 3D)
         assert C == 2 if dim == 4 else C == 3, f"Expected deformation to have 2 channels for 2D or 3 channels for 3D, but got {C} channels."
-        
+        assert len(extent) == dim - 2 and len(extent)==C, f"Expected extent to have {dim-2} elements and match the number of channels {C}, but got {len(extent)}."
+
         v_norm = v.clone()
         for i in range(C): 
-            v_norm[..., i] = 2 * v_norm[..., i] / (shape[i+1] - 1)
+            # NOTE: Normalize to the range [-1, 1] based on the spatial dimensions of the input image. We use extent[i]. 
+            # Also note that the spatial dimensions are assumed to be in the order (D, H, W) for 3D or (H, W) for 2D which corresponds to (z, y, x) and (y, x) respectively, 
+            # whereas torch.nn.functional.grid_sample expects the channel dimension to use the convention (x, y, z) for 3D or (x, y) for 2D. This is why we reverse the order when normalizing. 
         
+            v_norm[..., C-1-i] = 2 * v_norm[..., C-1-i] / extent[i] 
         # clip values to [-1, 1]
 
         v_norm = torch.clamp(v_norm, -1.0, 1.0)

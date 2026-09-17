@@ -323,7 +323,7 @@ def plot_deformed_grid(
 
 def main():
     from test.test_diffeomorphic_registration import diffeomorphic_registration, get_target_and_template, setup_operators
-    from test.test_models import UNet
+    from test.models import UNet
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")

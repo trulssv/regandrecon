@@ -14,6 +14,9 @@
   "remoteUser": "vscode",
   "workspaceFolder": "/workspace/RegAndRecon",
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspace/RegAndRecon,type=bind",
+  "mounts": [
+    "source=/media/trulssv/LDDMM,target=/media/trulssv/LDDMM,type=bind,readonly"
+  ],
   "runArgs": [
     "--cap-drop=ALL",
     "--security-opt=no-new-privileges:true",

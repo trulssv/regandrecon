@@ -1,0 +1,2009 @@
+{
+  "jacobian_determinant_baseline_checks": {
+    "identity_det_interior_mean": -4.063240051269531,
+    "identity_det_interior_min": -4.063251495361328,
+    "identity_det_interior_max": -4.063236236572266,
+    "identity_det_full_min": -16127.0,
+    "identity_det_full_max": 255.9844970703125,
+    "note_full_min_max_include_boundary_roll_wraparound": true,
+    "uniform_scale_det_interior_mean_by_c": {
+      "0.5": -1.0158100128173828,
+      "1.0": -4.063240051269531,
+      "2.0": -16.252960205078125
+    },
+    "mirror_flip_det_interior_mean": 4.063240051269531,
+    "fold_sign_convention": "negative (matches identity)"
+  },
+  "primary_euler_N7_magnitude50": {
+    "template_metrics": {
+      "laplacian_var": 0.1371869444847107,
+      "grad_energy": 0.01983184926211834,
+      "hf_energy_frac": 0.26770541071891785
+    },
+    "template_sum": 2015.5,
+    "frames": [
+      {
+        "frame": 1,
+        "n_compositions": 0,
+        "geo": {
+          "laplacian_var": 0.05577396973967552,
+          "grad_energy": 0.013523265719413757,
+          "hf_energy_frac": 0.21296288073062897
+        },
+        "mp": {
+          "laplacian_var": 148.4281005859375,
+          "grad_energy": 188.1783447265625,
+          "hf_energy_frac": 0.5635124444961548
+        },
+        "geo_interior": {
+          "laplacian_var": 0.053402889519929886,
+          "grad_energy": 0.013054576702415943,
+          "hf_energy_frac": 0.21120597422122955
+        },
+        "mp_interior": {
+          "laplacian_var": 2.506927013397217,
+          "grad_energy": 0.3363817036151886,
+          "hf_energy_frac": 0.2787892818450928
+        },
+        "geo_sum": 1889.1263427734375,
+        "mp_sum": 18172.3671875,
+        "geo_sum_pct_of_template": 93.72991033358657,
+        "mp_sum_pct_of_template": 901.630721285041,
+        "det_interior_min": -17.04278564453125,
+        "det_interior_max": 203.2449188232422,
+        "det_interior_mean": -4.0194854736328125,
+        "fold_frac_full_domain": 0.03326416015625,
+        "fold_frac_interior": 0.002754635850577802,
+        "frac_phi_sampling_outside_domain": 0.1046142578125,
+        "geo_laplacian_var_pct_of_template": 40.65545008613517,
+        "mp_laplacian_var_pct_of_template": 108194.04218342339,
+        "geo_interior_laplacian_var_pct_of_template": 35.30802142082627,
+        "mp_interior_laplacian_var_pct_of_template": 1657.48770310347,
+        "geo_grad_energy_pct_of_template": 68.18963547310297,
+        "mp_grad_energy_pct_of_template": 948869.3779354705,
+        "geo_interior_grad_energy_pct_of_template": 59.7997475118501,
+        "mp_interior_grad_energy_pct_of_template": 1540.8803672716247,
+        "geo_hf_energy_frac_pct_of_template": 79.55120524412307,
+        "mp_hf_energy_frac_pct_of_template": 210.49721893287577,
+        "geo_interior_hf_energy_frac_pct_of_template": 79.88791067573737,
+        "mp_interior_hf_energy_frac_pct_of_template": 105.45105709019789
+      },
+      {
+        "frame": 2,
+        "n_compositions": 1,
+        "geo": {
+          "laplacian_var": 0.04575471580028534,
+          "grad_energy": 0.01044889073818922,
+          "hf_energy_frac": 0.22921264171600342
+        },
+        "mp": {
+          "laplacian_var": 57.29576873779297,
+          "grad_energy": 74.64878845214844,
+          "hf_energy_frac": 0.6117709279060364
+        },
+        "geo_interior": {
+          "laplacian_var": 0.04785719886422157,
+          "grad_energy": 0.010696209035813808,
+          "hf_energy_frac": 0.23072324693202972
+        },
+        "mp_interior": {
+          "laplacian_var": 4.370115756988525,
+          "grad_energy": 0.4641058146953583,
+          "hf_energy_frac": 0.40932586789131165
+        },
+        "geo_sum": 1618.343994140625,
+        "mp_sum": 13601.6474609375,
+        "geo_sum_pct_of_template": 80.29491412258125,
+        "mp_sum_pct_of_template": 674.8522679701067,
+        "det_interior_min": -62.10965347290039,
+        "det_interior_max": 208.2632598876953,
+        "det_interior_mean": -3.706437110900879,
+        "fold_frac_full_domain": 0.070068359375,
+        "fold_frac_interior": 0.027815103466809998,
+        "frac_phi_sampling_outside_domain": 0.2008056640625,
+        "geo_laplacian_var_pct_of_template": 33.35209190068713,
+        "mp_laplacian_var_pct_of_template": 41764.73858573219,
+        "geo_interior_laplacian_var_pct_of_template": 31.641415246043348,
+        "mp_interior_laplacian_var_pct_of_template": 2889.3593988328416,
+        "geo_grad_energy_pct_of_template": 52.68742516184858,
+        "mp_grad_energy_pct_of_template": 376408.61154959595,
+        "geo_interior_grad_energy_pct_of_template": 48.99665567534352,
+        "mp_interior_grad_energy_pct_of_template": 2125.9525429444016,
+        "geo_hf_energy_frac_pct_of_template": 85.62122114022917,
+        "mp_hf_energy_frac_pct_of_template": 228.52393093704646,
+        "geo_interior_hf_energy_frac_pct_of_template": 87.27024985768314,
+        "mp_interior_hf_energy_frac_pct_of_template": 154.8260577947368
+      },
+      {
+        "frame": 3,
+        "n_compositions": 2,
+        "geo": {
+          "laplacian_var": 0.045441996306180954,
+          "grad_energy": 0.009248215705156326,
+          "hf_energy_frac": 0.25620755553245544
+        },
+        "mp": {
+          "laplacian_var": 46.26607894897461,
+          "grad_energy": 49.34678649902344,
+          "hf_energy_frac": 0.6389480829238892
+        },
+        "geo_interior": {
+          "laplacian_var": 0.0476209931075573,
+          "grad_energy": 0.009647422470152378,
+          "hf_energy_frac": 0.25835976004600525
+        },
+        "mp_interior": {
+          "laplacian_var": 14.194515228271484,
+          "grad_energy": 1.2443931102752686,
+          "hf_energy_frac": 0.6369084119796753
+        },
+        "geo_sum": 1409.6605224609375,
+        "mp_sum": 12206.640625,
+        "geo_sum_pct_of_template": 69.94098350091478,
+        "mp_sum_pct_of_template": 605.638334160258,
+        "det_interior_min": -65.92863464355469,
+        "det_interior_max": 480.1085205078125,
+        "det_interior_mean": -3.2377967834472656,
+        "fold_frac_full_domain": 0.1160888671875,
+        "fold_frac_interior": 0.07827196990056437,
+        "frac_phi_sampling_outside_domain": 0.2962646484375,
+        "geo_laplacian_var_pct_of_template": 33.12414054913615,
+        "mp_laplacian_var_pct_of_template": 33724.84103553375,
+        "geo_interior_laplacian_var_pct_of_template": 31.485244709373937,
+        "mp_interior_laplacian_var_pct_of_template": 9384.89007324247,
+        "geo_grad_energy_pct_of_template": 46.63314844179326,
+        "mp_grad_energy_pct_of_template": 248825.94581475988,
+        "geo_interior_grad_energy_pct_of_template": 44.19242699370674,
+        "mp_interior_grad_energy_pct_of_template": 5700.253290187143,
+        "geo_hf_energy_frac_pct_of_template": 95.70503444230539,
+        "mp_hf_energy_frac_pct_of_template": 238.6758195166867,
+        "geo_interior_hf_energy_frac_pct_of_template": 97.72366292603469,
+        "mp_interior_hf_energy_frac_pct_of_template": 240.90834794077364
+      },
+      {
+        "frame": 4,
+        "n_compositions": 3,
+        "geo": {
+          "laplacian_var": 0.04857930541038513,
+          "grad_energy": 0.008742857724428177,
+          "hf_energy_frac": 0.2910766899585724
+        },
+        "mp": {
+          "laplacian_var": 51.755615234375,
+          "grad_energy": 45.5023193359375,
+          "hf_energy_frac": 0.6455220580101013
+        },
+        "geo_interior": {
+          "laplacian_var": 0.05114978551864624,
+          "grad_energy": 0.009153150953352451,
+          "hf_energy_frac": 0.2879766821861267
+        },
+        "mp_interior": {
+          "laplacian_var": 24.372114181518555,
+          "grad_energy": 2.135786294937134,
+          "hf_energy_frac": 0.7152116894721985
+        },
+        "geo_sum": 1195.52685546875,
+        "mp_sum": 11490.767578125,
+        "geo_sum_pct_of_template": 59.31663882256264,
+        "mp_sum_pct_of_template": 570.1199492991814,
+        "det_interior_min": -120.1561050415039,
+        "det_interior_max": 463.63934326171875,
+        "det_interior_mean": -2.771176338195801,
+        "fold_frac_full_domain": 0.1622314453125,
+        "fold_frac_interior": 0.1275866702499328,
+        "frac_phi_sampling_outside_domain": 0.3909912109375,
+        "geo_laplacian_var_pct_of_template": 35.41102660523154,
+        "mp_laplacian_var_pct_of_template": 37726.341547131036,
+        "geo_interior_laplacian_var_pct_of_template": 33.81835213409258,
+        "mp_interior_laplacian_var_pct_of_template": 16113.94322156916,
+        "geo_grad_energy_pct_of_template": 44.084934334027444,
+        "mp_grad_energy_pct_of_template": 229440.6272180246,
+        "geo_interior_grad_energy_pct_of_template": 41.928292921748294,
+        "mp_interior_grad_energy_pct_of_template": 9783.502298689931,
+        "geo_hf_energy_frac_pct_of_template": 108.73022296295447,
+        "mp_hf_energy_frac_pct_of_template": 241.13149460691287,
+        "geo_interior_hf_energy_frac_pct_of_template": 108.92615868471037,
+        "mp_interior_hf_energy_frac_pct_of_template": 270.5262849380851
+      },
+      {
+        "frame": 5,
+        "n_compositions": 4,
+        "geo": {
+          "laplacian_var": 0.05820099636912346,
+          "grad_energy": 0.008788608014583588,
+          "hf_energy_frac": 0.34439754486083984
+        },
+        "mp": {
+          "laplacian_var": 62.90864562988281,
+          "grad_energy": 36.502620697021484,
+          "hf_energy_frac": 0.6870630979537964
+        },
+        "geo_interior": {
+          "laplacian_var": 0.0609818696975708,
+          "grad_energy": 0.009258550591766834,
+          "hf_energy_frac": 0.34891098737716675
+        },
+        "mp_interior": {
+          "laplacian_var": 45.37804412841797,
+          "grad_energy": 3.9396204948425293,
+          "hf_energy_frac": 0.7604888677597046
+        },
+        "geo_sum": 969.0352172851562,
+        "mp_sum": 10141.86328125,
+        "geo_sum_pct_of_template": 48.079147471354815,
+        "mp_sum_pct_of_template": 503.1934150955098,
+        "det_interior_min": -123.972900390625,
+        "det_interior_max": 687.387939453125,
+        "det_interior_mean": -2.3087990283966064,
+        "fold_frac_full_domain": 0.20965576171875,
+        "fold_frac_interior": 0.17985756517065304,
+        "frac_phi_sampling_outside_domain": 0.48492431640625,
+        "geo_laplacian_var_pct_of_template": 42.42458827823072,
+        "mp_laplacian_var_pct_of_template": 45856.146053966455,
+        "geo_interior_laplacian_var_pct_of_template": 40.31896365383589,
+        "mp_interior_laplacian_var_pct_of_template": 30002.28954883498,
+        "geo_grad_energy_pct_of_template": 44.31562532784616,
+        "mp_grad_energy_pct_of_template": 184060.59976840735,
+        "geo_interior_grad_energy_pct_of_template": 42.41110227732503,
+        "mp_interior_grad_energy_pct_of_template": 18046.41515802608,
+        "geo_hf_energy_frac_pct_of_template": 128.6479581925396,
+        "mp_hf_energy_frac_pct_of_template": 256.6489396343172,
+        "geo_interior_hf_energy_frac_pct_of_template": 131.9743435106329,
+        "mp_interior_hf_energy_frac_pct_of_template": 287.65221704307834
+      },
+      {
+        "frame": 6,
+        "n_compositions": 5,
+        "geo": {
+          "laplacian_var": 0.07038035243749619,
+          "grad_energy": 0.008065898902714252,
+          "hf_energy_frac": 0.39920851588249207
+        },
+        "mp": {
+          "laplacian_var": 73.87007141113281,
+          "grad_energy": 26.13457679748535,
+          "hf_energy_frac": 0.7175990343093872
+        },
+        "geo_interior": {
+          "laplacian_var": 0.0744922012090683,
+          "grad_energy": 0.00851158145815134,
+          "hf_energy_frac": 0.4014533460140228
+        },
+        "mp_interior": {
+          "laplacian_var": 66.4639892578125,
+          "grad_energy": 5.787193775177002,
+          "hf_energy_frac": 0.7824004292488098
+        },
+        "geo_sum": 730.9283447265625,
+        "mp_sum": 8737.431640625,
+        "geo_sum_pct_of_template": 36.26536069097308,
+        "mp_sum_pct_of_template": 433.511865076904,
+        "det_interior_min": -178.20257568359375,
+        "det_interior_max": 659.2965698242188,
+        "det_interior_mean": -1.8541045188903809,
+        "fold_frac_full_domain": 0.25299072265625,
+        "fold_frac_interior": 0.22708949207202364,
+        "frac_phi_sampling_outside_domain": 0.576416015625,
+        "geo_laplacian_var_pct_of_template": 51.30251475594311,
+        "mp_laplacian_var_pct_of_template": 53846.28376161956,
+        "geo_interior_laplacian_var_pct_of_template": 49.25149668151772,
+        "mp_interior_laplacian_var_pct_of_template": 43943.53896435924,
+        "geo_grad_energy_pct_of_template": 40.67144115562269,
+        "mp_grad_energy_pct_of_template": 131780.8362299633,
+        "geo_interior_grad_energy_pct_of_template": 38.989423688460064,
+        "mp_interior_grad_energy_pct_of_template": 26509.68579423103,
+        "geo_hf_energy_frac_pct_of_template": 149.12231874971263,
+        "mp_hf_energy_frac_pct_of_template": 268.0554839673537,
+        "geo_interior_hf_energy_frac_pct_of_template": 151.84830431572362,
+        "mp_interior_hf_energy_frac_pct_of_template": 295.94018746371626
+      },
+      {
+        "frame": 7,
+        "n_compositions": 6,
+        "geo": {
+          "laplacian_var": 0.07257227599620819,
+          "grad_energy": 0.006799217779189348,
+          "hf_energy_frac": 0.4571707844734192
+        },
+        "mp": {
+          "laplacian_var": 98.47799682617188,
+          "grad_energy": 19.972076416015625,
+          "hf_energy_frac": 0.7455406785011292
+        },
+        "geo_interior": {
+          "laplacian_var": 0.07717391848564148,
+          "grad_energy": 0.0071252454072237015,
+          "hf_energy_frac": 0.46563640236854553
+        },
+        "mp_interior": {
+          "laplacian_var": 100.01090240478516,
+          "grad_energy": 8.71630859375,
+          "hf_energy_frac": 0.7931714653968811
+        },
+        "geo_sum": 528.7200317382812,
+        "mp_sum": 7586.40966796875,
+        "geo_sum_pct_of_template": 26.232698176049677,
+        "mp_sum_pct_of_template": 376.40335737875216,
+        "det_interior_min": -182.01907348632812,
+        "det_interior_max": 848.7943115234375,
+        "det_interior_mean": -1.412755012512207,
+        "fold_frac_full_domain": 0.296875,
+        "fold_frac_interior": 0.27586670249932815,
+        "frac_phi_sampling_outside_domain": 0.66412353515625,
+        "geo_laplacian_var_pct_of_template": 52.90027871733544,
+        "mp_laplacian_var_pct_of_template": 71783.79633431308,
+        "geo_interior_laplacian_var_pct_of_template": 51.02454926157538,
+        "mp_interior_laplacian_var_pct_of_template": 66123.52095866433,
+        "geo_grad_energy_pct_of_template": 34.284335713345826,
+        "mp_grad_energy_pct_of_template": 100707.08057551214,
+        "geo_interior_grad_energy_pct_of_template": 32.63896532417577,
+        "mp_interior_grad_energy_pct_of_template": 39927.2274408681,
+        "geo_hf_energy_frac_pct_of_template": 170.77383054966862,
+        "mp_hf_energy_frac_pct_of_template": 278.4929436050596,
+        "geo_interior_hf_energy_frac_pct_of_template": 176.12531774705363,
+        "mp_interior_hf_energy_frac_pct_of_template": 300.0142936856404
+      }
+    ]
+  },
+  "euler_N4_magnitude50": {
+    "template_metrics": {
+      "laplacian_var": 0.1371869444847107,
+      "grad_energy": 0.01983184926211834,
+      "hf_energy_frac": 0.26770541071891785
+    },
+    "template_sum": 2015.5,
+    "frames": [
+      {
+        "frame": 1,
+        "n_compositions": 0,
+        "geo": {
+          "laplacian_var": 0.04586825892329216,
+          "grad_energy": 0.010984684340655804,
+          "hf_energy_frac": 0.22254478931427002
+        },
+        "mp": {
+          "laplacian_var": 76.62007141113281,
+          "grad_energy": 81.99703216552734,
+          "hf_energy_frac": 0.6129396557807922
+        },
+        "geo_interior": {
+          "laplacian_var": 0.04544757679104805,
+          "grad_energy": 0.010947436094284058,
+          "hf_energy_frac": 0.22259584069252014
+        },
+        "mp_interior": {
+          "laplacian_var": 19.149738311767578,
+          "grad_energy": 1.4800035953521729,
+          "hf_energy_frac": 0.6347288489341736
+        },
+        "geo_sum": 1692.9114990234375,
+        "mp_sum": 14076.404296875,
+        "geo_sum_pct_of_template": 83.99461667196415,
+        "mp_sum_pct_of_template": 698.4075562825601,
+        "det_interior_min": -26.777456283569336,
+        "det_interior_max": 630.8179931640625,
+        "det_interior_mean": -3.929241180419922,
+        "fold_frac_full_domain": 0.03900146484375,
+        "fold_frac_interior": 0.009070142434829348,
+        "frac_phi_sampling_outside_domain": 0.1739501953125,
+        "geo_laplacian_var_pct_of_template": 33.4348571546501,
+        "mp_laplacian_var_pct_of_template": 55850.847687384725,
+        "geo_interior_laplacian_var_pct_of_template": 30.048261981481602,
+        "mp_interior_laplacian_var_pct_of_template": 12661.100861644816,
+        "geo_grad_energy_pct_of_template": 55.38910766954102,
+        "mp_grad_energy_pct_of_template": 413461.35240223596,
+        "geo_interior_grad_energy_pct_of_template": 50.14746393264116,
+        "mp_interior_grad_energy_pct_of_template": 6779.525934556833,
+        "geo_hf_energy_frac_pct_of_template": 83.13047865436495,
+        "mp_hf_energy_frac_pct_of_template": 228.9605033139802,
+        "geo_interior_hf_energy_frac_pct_of_template": 84.19608727264529,
+        "mp_interior_hf_energy_frac_pct_of_template": 240.08393594895756
+      },
+      {
+        "frame": 2,
+        "n_compositions": 1,
+        "geo": {
+          "laplacian_var": 0.048575419932603836,
+          "grad_energy": 0.00947570614516735,
+          "hf_energy_frac": 0.28225186467170715
+        },
+        "mp": {
+          "laplacian_var": 57.105438232421875,
+          "grad_energy": 47.867767333984375,
+          "hf_energy_frac": 0.6548200845718384
+        },
+        "geo_interior": {
+          "laplacian_var": 0.05080924183130264,
+          "grad_energy": 0.009835337288677692,
+          "hf_energy_frac": 0.28035232424736023
+        },
+        "mp_interior": {
+          "laplacian_var": 28.133026123046875,
+          "grad_energy": 2.475848913192749,
+          "hf_energy_frac": 0.7335079312324524
+        },
+        "geo_sum": 1318.6116943359375,
+        "mp_sum": 11908.89453125,
+        "geo_sum_pct_of_template": 65.42355218734495,
+        "mp_sum_pct_of_template": 590.8655187918631,
+        "det_interior_min": -105.6441879272461,
+        "det_interior_max": 474.6119689941406,
+        "det_interior_mean": -3.209688186645508,
+        "fold_frac_full_domain": 0.11669921875,
+        "fold_frac_interior": 0.07766729373824241,
+        "frac_phi_sampling_outside_domain": 0.3372802734375,
+        "geo_laplacian_var_pct_of_template": 35.408194354833455,
+        "mp_laplacian_var_pct_of_template": 41626.00052571781,
+        "geo_interior_laplacian_var_pct_of_template": 33.593197204920294,
+        "mp_interior_laplacian_var_pct_of_template": 18600.51952084911,
+        "geo_grad_energy_pct_of_template": 47.780244897621834,
+        "mp_grad_energy_pct_of_template": 241368.1482816564,
+        "geo_interior_grad_energy_pct_of_template": 45.05321773075678,
+        "mp_interior_grad_energy_pct_of_template": 11341.244014370459,
+        "geo_hf_energy_frac_pct_of_template": 105.43375418290017,
+        "mp_hf_energy_frac_pct_of_template": 244.604725325996,
+        "geo_interior_hf_energy_frac_pct_of_template": 106.04227233529289,
+        "mp_interior_hf_energy_frac_pct_of_template": 277.4467734935549
+      },
+      {
+        "frame": 3,
+        "n_compositions": 2,
+        "geo": {
+          "laplacian_var": 0.06302948296070099,
+          "grad_energy": 0.008781393989920616,
+          "hf_energy_frac": 0.35640600323677063
+        },
+        "mp": {
+          "laplacian_var": 115.33946228027344,
+          "grad_energy": 30.289623260498047,
+          "hf_energy_frac": 0.7128061652183533
+        },
+        "geo_interior": {
+          "laplacian_var": 0.06726992875337601,
+          "grad_energy": 0.009335394948720932,
+          "hf_energy_frac": 0.36167648434638977
+        },
+        "mp_interior": {
+          "laplacian_var": 111.14138793945312,
+          "grad_energy": 10.511978149414062,
+          "hf_energy_frac": 0.7898982763290405
+        },
+        "geo_sum": 917.2669677734375,
+        "mp_sum": 9723.234375,
+        "geo_sum_pct_of_template": 45.51064092153002,
+        "mp_sum_pct_of_template": 482.42294095757876,
+        "det_interior_min": -106.19046020507812,
+        "det_interior_max": 1310.140869140625,
+        "det_interior_mean": -2.3477985858917236,
+        "fold_frac_full_domain": 0.20074462890625,
+        "fold_frac_interior": 0.17024993281375975,
+        "frac_phi_sampling_outside_domain": 0.49951171875,
+        "geo_laplacian_var_pct_of_template": 45.944228291873316,
+        "mp_laplacian_var_pct_of_template": 84074.66374697766,
+        "geo_interior_laplacian_var_pct_of_template": 44.47639644134327,
+        "mp_interior_laplacian_var_pct_of_template": 73482.58757875029,
+        "geo_grad_energy_pct_of_template": 44.27924937234336,
+        "mp_grad_energy_pct_of_template": 152732.21806075113,
+        "geo_interior_grad_energy_pct_of_template": 42.76310703767203,
+        "mp_interior_grad_energy_pct_of_template": 48152.740109046346,
+        "geo_hf_energy_frac_pct_of_template": 133.13365698498546,
+        "mp_hf_energy_frac_pct_of_template": 266.2651319986868,
+        "geo_interior_hf_energy_frac_pct_of_template": 136.80284746450533,
+        "mp_interior_hf_energy_frac_pct_of_template": 298.7762215295822
+      },
+      {
+        "frame": 4,
+        "n_compositions": 3,
+        "geo": {
+          "laplacian_var": 0.07456722110509872,
+          "grad_energy": 0.00733066163957119,
+          "hf_energy_frac": 0.4602185785770416
+        },
+        "mp": {
+          "laplacian_var": 156.95159912109375,
+          "grad_energy": 26.335636138916016,
+          "hf_energy_frac": 0.7618668675422668
+        },
+        "geo_interior": {
+          "laplacian_var": 0.0796375721693039,
+          "grad_energy": 0.007685934659093618,
+          "hf_energy_frac": 0.46579068899154663
+        },
+        "mp_interior": {
+          "laplacian_var": 164.64759826660156,
+          "grad_energy": 15.053121566772461,
+          "hf_energy_frac": 0.7779099345207214
+        },
+        "geo_sum": 569.0430297851562,
+        "mp_sum": 7966.33642578125,
+        "geo_sum_pct_of_template": 28.23334308038483,
+        "mp_sum_pct_of_template": 395.25360584377324,
+        "det_interior_min": -207.2251434326172,
+        "det_interior_max": 1069.3724365234375,
+        "det_interior_mean": -1.5088499784469604,
+        "fold_frac_full_domain": 0.2750244140625,
+        "fold_frac_interior": 0.2540983606557377,
+        "frac_phi_sampling_outside_domain": 0.6527099609375,
+        "geo_laplacian_var_pct_of_template": 54.3544587170313,
+        "mp_laplacian_var_pct_of_template": 114407.09588701847,
+        "geo_interior_laplacian_var_pct_of_template": 52.65342623467974,
+        "mp_interior_laplacian_var_pct_of_template": 108858.92090755166,
+        "geo_grad_energy_pct_of_template": 36.96408510715034,
+        "mp_grad_energy_pct_of_template": 132794.6566698691,
+        "geo_interior_grad_energy_pct_of_template": 35.20734241205363,
+        "mp_interior_grad_energy_pct_of_template": 68954.581177005,
+        "geo_hf_energy_frac_pct_of_template": 171.9123185971973,
+        "mp_hf_energy_frac_pct_of_template": 284.5915088142177,
+        "geo_interior_hf_energy_frac_pct_of_template": 176.1836761150033,
+        "mp_interior_hf_energy_frac_pct_of_template": 294.24167375902516
+      }
+    ]
+  },
+  "euler_N10_magnitude50": {
+    "template_metrics": {
+      "laplacian_var": 0.1371869444847107,
+      "grad_energy": 0.01983184926211834,
+      "hf_energy_frac": 0.26770541071891785
+    },
+    "template_sum": 2015.5,
+    "frames": [
+      {
+        "frame": 1,
+        "n_compositions": 0,
+        "geo": {
+          "laplacian_var": 0.059370823204517365,
+          "grad_energy": 0.0148023571819067,
+          "hf_energy_frac": 0.21477888524532318
+        },
+        "mp": {
+          "laplacian_var": 52.87191390991211,
+          "grad_energy": 65.6967544555664,
+          "hf_energy_frac": 0.7357078194618225
+        },
+        "geo_interior": {
+          "laplacian_var": 0.055812012404203415,
+          "grad_energy": 0.014416113495826721,
+          "hf_energy_frac": 0.2109295129776001
+        },
+        "mp_interior": {
+          "laplacian_var": 1.2066850662231445,
+          "grad_energy": 0.26880356669425964,
+          "hf_energy_frac": 0.21823611855506897
+        },
+        "geo_sum": 1958.773681640625,
+        "mp_sum": 11715.919921875,
+        "geo_sum_pct_of_template": 97.18549648427809,
+        "mp_sum_pct_of_template": 581.2909909141653,
+        "det_interior_min": -13.14892292022705,
+        "det_interior_max": 97.51776123046875,
+        "det_interior_mean": -4.041800498962402,
+        "fold_frac_full_domain": 0.03240966796875,
+        "fold_frac_interior": 0.0018140284869658694,
+        "frac_phi_sampling_outside_domain": 0.0733642578125,
+        "geo_laplacian_var_pct_of_template": 43.27731288682077,
+        "mp_laplacian_var_pct_of_template": 38540.047749080535,
+        "geo_interior_laplacian_var_pct_of_template": 36.90084464009398,
+        "mp_interior_laplacian_var_pct_of_template": 797.8156715751791,
+        "geo_grad_energy_pct_of_template": 74.63931873555188,
+        "mp_grad_energy_pct_of_template": 331268.92801195587,
+        "geo_interior_grad_energy_pct_of_template": 66.03660668622614,
+        "mp_interior_grad_energy_pct_of_template": 1231.3218409928743,
+        "geo_hf_energy_frac_pct_of_template": 80.22956453085446,
+        "mp_hf_energy_frac_pct_of_template": 274.81992892339866,
+        "geo_interior_hf_energy_frac_pct_of_template": 79.78334019084551,
+        "mp_interior_hf_energy_frac_pct_of_template": 82.54703783655825
+      },
+      {
+        "frame": 2,
+        "n_compositions": 1,
+        "geo": {
+          "laplacian_var": 0.04845944792032242,
+          "grad_energy": 0.011672258377075195,
+          "hf_energy_frac": 0.21650992333889008
+        },
+        "mp": {
+          "laplacian_var": 78.81560516357422,
+          "grad_energy": 102.60638427734375,
+          "hf_energy_frac": 0.5848419666290283
+        },
+        "geo_interior": {
+          "laplacian_var": 0.05025840923190117,
+          "grad_energy": 0.011669548228383064,
+          "hf_energy_frac": 0.21496108174324036
+        },
+        "mp_interior": {
+          "laplacian_var": 1.7423183917999268,
+          "grad_energy": 0.268966406583786,
+          "hf_energy_frac": 0.25579211115837097
+        },
+        "geo_sum": 1755.5963134765625,
+        "mp_sum": 14910.6142578125,
+        "geo_sum_pct_of_template": 87.10475383163298,
+        "mp_sum_pct_of_template": 739.7972839400893,
+        "det_interior_min": -44.69563293457031,
+        "det_interior_max": 112.59339904785156,
+        "det_interior_mean": -3.8802084922790527,
+        "fold_frac_full_domain": 0.055419921875,
+        "fold_frac_interior": 0.009002956194571352,
+        "frac_phi_sampling_outside_domain": 0.14208984375,
+        "geo_laplacian_var_pct_of_template": 35.3236586049361,
+        "mp_laplacian_var_pct_of_template": 57451.243235727954,
+        "geo_interior_laplacian_var_pct_of_template": 33.22900700109812,
+        "mp_interior_laplacian_var_pct_of_template": 1151.956675988722,
+        "geo_grad_energy_pct_of_template": 58.85612694410134,
+        "mp_grad_energy_pct_of_template": 517381.8281956014,
+        "geo_interior_grad_energy_pct_of_template": 53.45527882995394,
+        "mp_interior_grad_energy_pct_of_template": 1232.0677697579742,
+        "geo_hf_energy_frac_pct_of_template": 80.8761850414068,
+        "mp_hf_energy_frac_pct_of_template": 218.46475387196926,
+        "geo_interior_hf_energy_frac_pct_of_template": 81.30826677788988,
+        "mp_interior_hf_energy_frac_pct_of_template": 96.7524588408362
+      },
+      {
+        "frame": 3,
+        "n_compositions": 2,
+        "geo": {
+          "laplacian_var": 0.04727150872349739,
+          "grad_energy": 0.010506676509976387,
+          "hf_energy_frac": 0.23470847308635712
+        },
+        "mp": {
+          "laplacian_var": 56.1396598815918,
+          "grad_energy": 73.1435546875,
+          "hf_energy_frac": 0.6243827939033508
+        },
+        "geo_interior": {
+          "laplacian_var": 0.048091914504766464,
+          "grad_energy": 0.010699027217924595,
+          "hf_energy_frac": 0.23430250585079193
+        },
+        "mp_interior": {
+          "laplacian_var": 4.94972562789917,
+          "grad_energy": 0.46476009488105774,
+          "hf_energy_frac": 0.4206186830997467
+        },
+        "geo_sum": 1591.2808837890625,
+        "mp_sum": 13389.4833984375,
+        "geo_sum_pct_of_template": 78.95216491138986,
+        "mp_sum_pct_of_template": 664.3256461641032,
+        "det_interior_min": -49.4276237487793,
+        "det_interior_max": 260.0473937988281,
+        "det_interior_mean": -3.559492349624634,
+        "fold_frac_full_domain": 0.08648681640625,
+        "fold_frac_interior": 0.043939801128728834,
+        "frac_phi_sampling_outside_domain": 0.21002197265625,
+        "geo_laplacian_var_pct_of_template": 34.457731310405954,
+        "mp_laplacian_var_pct_of_template": 40922.0134557691,
+        "geo_interior_laplacian_var_pct_of_template": 31.796600572879814,
+        "mp_interior_laplacian_var_pct_of_template": 3272.576073469856,
+        "geo_grad_energy_pct_of_template": 52.97880379741307,
+        "mp_grad_energy_pct_of_template": 368818.62967370683,
+        "geo_interior_grad_energy_pct_of_template": 49.00956506202905,
+        "mp_interior_grad_energy_pct_of_template": 2128.9496366685967,
+        "geo_hf_energy_frac_pct_of_template": 87.67416110718567,
+        "mp_hf_energy_frac_pct_of_template": 233.2350295896458,
+        "geo_interior_hf_energy_frac_pct_of_template": 88.62409184933013,
+        "mp_interior_hf_energy_frac_pct_of_template": 159.0975250956764
+      },
+      {
+        "frame": 4,
+        "n_compositions": 3,
+        "geo": {
+          "laplacian_var": 0.046008702367544174,
+          "grad_energy": 0.009638212621212006,
+          "hf_energy_frac": 0.2555862367153168
+        },
+        "mp": {
+          "laplacian_var": 45.65443420410156,
+          "grad_energy": 53.535362243652344,
+          "hf_energy_frac": 0.6339699029922485
+        },
+        "geo_interior": {
+          "laplacian_var": 0.04820710048079491,
+          "grad_energy": 0.0100053446367383,
+          "hf_energy_frac": 0.25649234652519226
+        },
+        "mp_interior": {
+          "laplacian_var": 8.987236022949219,
+          "grad_energy": 0.7395526766777039,
+          "hf_energy_frac": 0.5403753519058228
+        },
+        "geo_sum": 1447.983154296875,
+        "mp_sum": 12485.8427734375,
+        "geo_sum_pct_of_template": 71.84237927545894,
+        "mp_sum_pct_of_template": 619.4910827803275,
+        "det_interior_min": -85.3280258178711,
+        "det_interior_max": 274.94073486328125,
+        "det_interior_mean": -3.239290952682495,
+        "fold_frac_full_domain": 0.11566162109375,
+        "fold_frac_interior": 0.07780166621875839,
+        "frac_phi_sampling_outside_domain": 0.2774658203125,
+        "geo_laplacian_var_pct_of_template": 33.537230922634755,
+        "mp_laplacian_var_pct_of_template": 33278.993402458706,
+        "geo_interior_laplacian_var_pct_of_template": 31.87275729296653,
+        "mp_interior_laplacian_var_pct_of_template": 5942.029071177667,
+        "geo_grad_energy_pct_of_template": 48.59966659600608,
+        "mp_grad_energy_pct_of_template": 269946.3954978345,
+        "geo_interior_grad_energy_pct_of_template": 45.83197882894713,
+        "mp_interior_grad_energy_pct_of_template": 3387.705656427381,
+        "geo_hf_energy_frac_pct_of_template": 95.47294394571433,
+        "mp_hf_energy_frac_pct_of_template": 236.81624562228095,
+        "geo_interior_hf_energy_frac_pct_of_template": 97.01732038484734,
+        "mp_interior_hf_energy_frac_pct_of_template": 204.39506033671324
+      },
+      {
+        "frame": 5,
+        "n_compositions": 4,
+        "geo": {
+          "laplacian_var": 0.04664606228470802,
+          "grad_energy": 0.009040944278240204,
+          "hf_energy_frac": 0.2778441905975342
+        },
+        "mp": {
+          "laplacian_var": 48.273590087890625,
+          "grad_energy": 48.03662109375,
+          "hf_energy_frac": 0.6437183618545532
+        },
+        "geo_interior": {
+          "laplacian_var": 0.04918479174375534,
+          "grad_energy": 0.009380882605910301,
+          "hf_energy_frac": 0.27962788939476013
+        },
+        "mp_interior": {
+          "laplacian_var": 17.534629821777344,
+          "grad_energy": 1.329695224761963,
+          "hf_energy_frac": 0.6476653814315796
+        },
+        "geo_sum": 1303.45556640625,
+        "mp_sum": 11932.9912109375,
+        "geo_sum_pct_of_template": 64.6715736247209,
+        "mp_sum_pct_of_template": 592.061087121682,
+        "det_interior_min": -90.0461196899414,
+        "det_interior_max": 422.57696533203125,
+        "det_interior_mean": -2.9201009273529053,
+        "fold_frac_full_domain": 0.14056396484375,
+        "fold_frac_interior": 0.10507927976350444,
+        "frac_phi_sampling_outside_domain": 0.34503173828125,
+        "geo_laplacian_var_pct_of_template": 34.00182317633488,
+        "mp_laplacian_var_pct_of_template": 35188.1808208584,
+        "geo_interior_laplacian_var_pct_of_template": 32.51917070553438,
+        "mp_interior_laplacian_var_pct_of_template": 11593.250682110029,
+        "geo_grad_energy_pct_of_template": 45.58800421859648,
+        "mp_grad_energy_pct_of_template": 242219.57548611867,
+        "geo_interior_grad_energy_pct_of_template": 42.97147460690363,
+        "mp_interior_grad_energy_pct_of_template": 6091.000920295075,
+        "geo_hf_energy_frac_pct_of_template": 103.78728986141476,
+        "mp_hf_energy_frac_pct_of_template": 240.45773304538733,
+        "geo_interior_hf_energy_frac_pct_of_template": 105.768257421613,
+        "mp_interior_hf_energy_frac_pct_of_template": 244.97713348476222
+      },
+      {
+        "frame": 6,
+        "n_compositions": 5,
+        "geo": {
+          "laplacian_var": 0.048359498381614685,
+          "grad_energy": 0.00868139136582613,
+          "hf_energy_frac": 0.2952476739883423
+        },
+        "mp": {
+          "laplacian_var": 51.20285415649414,
+          "grad_energy": 39.838958740234375,
+          "hf_energy_frac": 0.6423439383506775
+        },
+        "geo_interior": {
+          "laplacian_var": 0.05139638110995293,
+          "grad_energy": 0.009137277491390705,
+          "hf_energy_frac": 0.2961486876010895
+        },
+        "mp_interior": {
+          "laplacian_var": 27.288713455200195,
+          "grad_energy": 2.0391623973846436,
+          "hf_energy_frac": 0.7049146294593811
+        },
+        "geo_sum": 1148.16845703125,
+        "mp_sum": 11198.7431640625,
+        "geo_sum_pct_of_template": 56.966929150645,
+        "mp_sum_pct_of_template": 555.6310178150583,
+        "det_interior_min": -125.96041870117188,
+        "det_interior_max": 437.4668273925781,
+        "det_interior_mean": -2.6025869846343994,
+        "fold_frac_full_domain": 0.16900634765625,
+        "fold_frac_interior": 0.13625369524321418,
+        "frac_phi_sampling_outside_domain": 0.4117431640625,
+        "geo_laplacian_var_pct_of_template": 35.25080215413959,
+        "mp_laplacian_var_pct_of_template": 37323.416123026655,
+        "geo_interior_laplacian_var_pct_of_template": 33.9813920463222,
+        "mp_interior_laplacian_var_pct_of_template": 18042.291117289034,
+        "geo_grad_energy_pct_of_template": 43.77499672916951,
+        "mp_grad_energy_pct_of_template": 200883.731081662,
+        "geo_interior_grad_energy_pct_of_template": 41.85558056660348,
+        "mp_interior_grad_energy_pct_of_template": 9340.89241489489,
+        "geo_hf_energy_frac_pct_of_template": 110.28827291740582,
+        "mp_hf_energy_frac_pct_of_template": 239.94432410823336,
+        "geo_interior_hf_energy_frac_pct_of_template": 112.01719074968578,
+        "mp_interior_hf_energy_frac_pct_of_template": 266.6314585082938
+      },
+      {
+        "frame": 7,
+        "n_compositions": 6,
+        "geo": {
+          "laplacian_var": 0.053332723677158356,
+          "grad_energy": 0.008760263212025166,
+          "hf_energy_frac": 0.3299144208431244
+        },
+        "mp": {
+          "laplacian_var": 61.963356018066406,
+          "grad_energy": 35.80586242675781,
+          "hf_energy_frac": 0.6660192608833313
+        },
+        "geo_interior": {
+          "laplacian_var": 0.05620068684220314,
+          "grad_energy": 0.009184066206216812,
+          "hf_energy_frac": 0.3356064260005951
+        },
+        "mp_interior": {
+          "laplacian_var": 43.89097595214844,
+          "grad_energy": 3.2118234634399414,
+          "hf_energy_frac": 0.7392190098762512
+        },
+        "geo_sum": 990.0153198242188,
+        "mp_sum": 10428.513671875,
+        "geo_sum_pct_of_template": 49.12008532990418,
+        "mp_sum_pct_of_template": 517.41571182709,
+        "det_interior_min": -130.67649841308594,
+        "det_interior_max": 585.1066284179688,
+        "det_interior_mean": -2.2876789569854736,
+        "fold_frac_full_domain": 0.20428466796875,
+        "fold_frac_interior": 0.17434829346949746,
+        "frac_phi_sampling_outside_domain": 0.4783935546875,
+        "geo_laplacian_var_pct_of_template": 38.875946889466746,
+        "mp_laplacian_var_pct_of_template": 45167.09388842183,
+        "geo_interior_laplacian_var_pct_of_template": 37.15782184687041,
+        "mp_interior_laplacian_var_pct_of_template": 29019.09490348983,
+        "geo_grad_energy_pct_of_template": 44.172699662247425,
+        "mp_grad_energy_pct_of_template": 180547.26996716397,
+        "geo_interior_grad_energy_pct_of_template": 42.069907955134376,
+        "mp_interior_grad_energy_pct_of_template": 14712.559169444361,
+        "geo_hf_energy_frac_pct_of_template": 123.2378605860619,
+        "mp_hf_energy_frac_pct_of_template": 248.78812090302884,
+        "geo_interior_hf_energy_frac_pct_of_template": 126.94194035655306,
+        "mp_interior_hf_energy_frac_pct_of_template": 279.6069687353808
+      },
+      {
+        "frame": 8,
+        "n_compositions": 7,
+        "geo": {
+          "laplacian_var": 0.06213325262069702,
+          "grad_energy": 0.008539617992937565,
+          "hf_energy_frac": 0.3737134635448456
+        },
+        "mp": {
+          "laplacian_var": 71.64982604980469,
+          "grad_energy": 26.051246643066406,
+          "hf_energy_frac": 0.6775515079498291
+        },
+        "geo_interior": {
+          "laplacian_var": 0.06609182059764862,
+          "grad_energy": 0.009127177298069,
+          "hf_energy_frac": 0.3799895644187927
+        },
+        "mp_interior": {
+          "laplacian_var": 62.34971618652344,
+          "grad_energy": 4.537947654724121,
+          "hf_energy_frac": 0.7628380060195923
+        },
+        "geo_sum": 818.6155395507812,
+        "mp_sum": 9384.45703125,
+        "geo_sum_pct_of_template": 40.6160029546406,
+        "mp_sum_pct_of_template": 465.61434042421234,
+        "det_interior_min": -166.5928192138672,
+        "det_interior_max": 599.9956665039062,
+        "det_interior_mean": -1.9766029119491577,
+        "fold_frac_full_domain": 0.236083984375,
+        "fold_frac_interior": 0.20955388336468692,
+        "frac_phi_sampling_outside_domain": 0.54315185546875,
+        "geo_laplacian_var_pct_of_template": 45.29093701596488,
+        "mp_laplacian_var_pct_of_template": 52227.87512246835,
+        "geo_interior_laplacian_var_pct_of_template": 43.69747476926878,
+        "mp_interior_laplacian_var_pct_of_template": 41223.33331559956,
+        "geo_grad_energy_pct_of_template": 43.06011950811593,
+        "mp_grad_energy_pct_of_template": 131360.65274975644,
+        "geo_interior_grad_energy_pct_of_template": 41.809314109695144,
+        "mp_interior_grad_energy_pct_of_template": 20787.202079426603,
+        "geo_hf_energy_frac_pct_of_template": 139.59877110486676,
+        "mp_hf_energy_frac_pct_of_template": 253.0959333732842,
+        "geo_interior_hf_energy_frac_pct_of_template": 143.72970505182587,
+        "mp_interior_hf_energy_frac_pct_of_template": 288.54077025831214
+      },
+      {
+        "frame": 9,
+        "n_compositions": 8,
+        "geo": {
+          "laplacian_var": 0.07331172376871109,
+          "grad_energy": 0.007842655293643475,
+          "hf_energy_frac": 0.4277717173099518
+        },
+        "mp": {
+          "laplacian_var": 94.50431823730469,
+          "grad_energy": 24.254865646362305,
+          "hf_energy_frac": 0.710210919380188
+        },
+        "geo_interior": {
+          "laplacian_var": 0.07791305333375931,
+          "grad_energy": 0.008321280591189861,
+          "hf_energy_frac": 0.4367353320121765
+        },
+        "mp_interior": {
+          "laplacian_var": 90.76345825195312,
+          "grad_energy": 6.504235744476318,
+          "hf_energy_frac": 0.7644214630126953
+        },
+        "geo_sum": 647.5285034179688,
+        "mp_sum": 8734.990234375,
+        "geo_sum_pct_of_template": 32.12743753004062,
+        "mp_sum_pct_of_template": 433.39073353386254,
+        "det_interior_min": -171.3082733154297,
+        "det_interior_max": 747.6361694335938,
+        "det_interior_mean": -1.6711033582687378,
+        "fold_frac_full_domain": 0.26483154296875,
+        "fold_frac_interior": 0.24079548508465468,
+        "frac_phi_sampling_outside_domain": 0.6068115234375,
+        "geo_laplacian_var_pct_of_template": 53.43928610997061,
+        "mp_laplacian_var_pct_of_template": 68887.25351546632,
+        "geo_interior_laplacian_var_pct_of_template": 51.51323796896234,
+        "mp_interior_laplacian_var_pct_of_template": 60009.45186668692,
+        "geo_grad_energy_pct_of_template": 39.545758895132714,
+        "mp_grad_energy_pct_of_template": 122302.59178448153,
+        "geo_interior_grad_energy_pct_of_template": 38.11770306089835,
+        "mp_interior_grad_energy_pct_of_template": 29794.27553596992,
+        "geo_hf_energy_frac_pct_of_template": 159.79195794406206,
+        "mp_hf_energy_frac_pct_of_template": 265.2956910631466,
+        "geo_interior_hf_energy_frac_pct_of_template": 165.1935903867073,
+        "mp_interior_hf_energy_frac_pct_of_template": 289.13970724998734
+      },
+      {
+        "frame": 10,
+        "n_compositions": 9,
+        "geo": {
+          "laplacian_var": 0.0669161006808281,
+          "grad_energy": 0.006651651114225388,
+          "hf_energy_frac": 0.45877379179000854
+        },
+        "mp": {
+          "laplacian_var": 115.14636993408203,
+          "grad_energy": 18.488384246826172,
+          "hf_energy_frac": 0.7502989768981934
+        },
+        "geo_interior": {
+          "laplacian_var": 0.06972819566726685,
+          "grad_energy": 0.006994373165071011,
+          "hf_energy_frac": 0.4620232880115509
+        },
+        "mp_interior": {
+          "laplacian_var": 119.4405746459961,
+          "grad_energy": 8.585345268249512,
+          "hf_energy_frac": 0.7821897268295288
+        },
+        "geo_sum": 505.5347900390625,
+        "mp_sum": 7736.099609375,
+        "geo_sum_pct_of_template": 25.082351279536717,
+        "mp_sum_pct_of_template": 383.8302956772513,
+        "det_interior_min": -207.2252197265625,
+        "det_interior_max": 762.5250854492188,
+        "det_interior_mean": -1.373634934425354,
+        "fold_frac_full_domain": 0.294677734375,
+        "fold_frac_interior": 0.27566514377855417,
+        "frac_phi_sampling_outside_domain": 0.6688232421875,
+        "geo_laplacian_var_pct_of_template": 48.7773096282393,
+        "mp_laplacian_var_pct_of_template": 83933.9124918807,
+        "geo_interior_laplacian_var_pct_of_template": 46.10171188090153,
+        "mp_interior_laplacian_var_pct_of_template": 78969.70381242708,
+        "geo_grad_energy_pct_of_template": 33.540246430427395,
+        "mp_grad_energy_pct_of_template": 93225.71991378344,
+        "geo_interior_grad_energy_pct_of_template": 32.039472348230234,
+        "mp_interior_grad_energy_pct_of_template": 39327.31723491005,
+        "geo_hf_energy_frac_pct_of_template": 171.3726258120746,
+        "mp_hf_energy_frac_pct_of_template": 280.2703818661265,
+        "geo_interior_hf_energy_frac_pct_of_template": 174.75867005596857,
+        "mp_interior_hf_energy_frac_pct_of_template": 295.86049002091073
+      }
+    ]
+  },
+  "scaling_and_squaring_N4_magnitude50": {
+    "template_metrics": {
+      "laplacian_var": 0.1371869444847107,
+      "grad_energy": 0.01983184926211834,
+      "hf_energy_frac": 0.26770541071891785
+    },
+    "template_sum": 2015.5,
+    "frames": [
+      {
+        "frame": 1,
+        "n_compositions": 0,
+        "geo": {
+          "laplacian_var": 0.06332643330097198,
+          "grad_energy": 0.014612008817493916,
+          "hf_energy_frac": 0.2137966901063919
+        },
+        "mp": {
+          "laplacian_var": 1.0946674346923828,
+          "grad_energy": 0.24732211232185364,
+          "hf_energy_frac": 0.20868191123008728
+        },
+        "geo_interior": {
+          "laplacian_var": 0.06479659676551819,
+          "grad_energy": 0.015576938167214394,
+          "hf_energy_frac": 0.20267915725708008
+        },
+        "mp_interior": {
+          "laplacian_var": 1.1154978275299072,
+          "grad_energy": 0.26297304034233093,
+          "hf_energy_frac": 0.19696871936321259
+        },
+        "geo_sum": 1977.9669189453125,
+        "mp_sum": 8219.8359375,
+        "geo_sum_pct_of_template": 98.13777816647544,
+        "mp_sum_pct_of_template": 407.8311058050112,
+        "det_interior_min": -9.741792678833008,
+        "det_interior_max": 35.6168327331543,
+        "det_interior_mean": -4.05486536026001,
+        "fold_frac_full_domain": 0.03143310546875,
+        "fold_frac_interior": 0.0007390486428379468,
+        "frac_phi_sampling_outside_domain": 0.0511474609375,
+        "geo_laplacian_var_pct_of_template": 46.160684997273655,
+        "mp_laplacian_var_pct_of_template": 797.9384910160909,
+        "geo_interior_laplacian_var_pct_of_template": 42.84112053037392,
+        "mp_interior_laplacian_var_pct_of_template": 737.5260317068111,
+        "geo_grad_energy_pct_of_template": 73.67950726312213,
+        "mp_grad_energy_pct_of_template": 1247.0955635704338,
+        "geo_interior_grad_energy_pct_of_template": 71.35405388017939,
+        "mp_interior_grad_energy_pct_of_template": 1204.6136595133478,
+        "geo_hf_energy_frac_pct_of_template": 79.86267051242817,
+        "mp_hf_energy_frac_pct_of_template": 77.95207077424246,
+        "geo_interior_hf_energy_frac_pct_of_template": 76.6626724006741,
+        "mp_interior_hf_energy_frac_pct_of_template": 74.50271952023718
+      },
+      {
+        "frame": 2,
+        "n_compositions": 1,
+        "geo": {
+          "laplacian_var": 0.05514676123857498,
+          "grad_energy": 0.013587270863354206,
+          "hf_energy_frac": 0.2050609290599823
+        },
+        "mp": {
+          "laplacian_var": 129.17929077148438,
+          "grad_energy": 162.7962646484375,
+          "hf_energy_frac": 0.5549968481063843
+        },
+        "geo_interior": {
+          "laplacian_var": 0.05432727932929993,
+          "grad_energy": 0.01353494357317686,
+          "hf_energy_frac": 0.2097216546535492
+        },
+        "mp_interior": {
+          "laplacian_var": 1.0621895790100098,
+          "grad_energy": 0.23605124652385712,
+          "hf_energy_frac": 0.20530514419078827
+        },
+        "geo_sum": 1919.077392578125,
+        "mp_sum": 17017.35546875,
+        "geo_sum_pct_of_template": 95.21594604704168,
+        "mp_sum_pct_of_template": 844.3242604192508,
+        "det_interior_min": -29.458484649658203,
+        "det_interior_max": 39.99820327758789,
+        "det_interior_mean": -4.011707305908203,
+        "fold_frac_full_domain": 0.04156494140625,
+        "fold_frac_interior": 0.0017468422467078742,
+        "frac_phi_sampling_outside_domain": 0.0936279296875,
+        "geo_laplacian_var_pct_of_template": 40.1982575278663,
+        "mp_laplacian_var_pct_of_template": 94162.96226779891,
+        "geo_interior_laplacian_var_pct_of_template": 35.91919387766965,
+        "mp_interior_laplacian_var_pct_of_template": 702.2805834254997,
+        "geo_grad_energy_pct_of_template": 68.51237463420938,
+        "mp_grad_energy_pct_of_template": 820882.92673443,
+        "geo_interior_grad_energy_pct_of_template": 62.00018788149029,
+        "mp_interior_grad_energy_pct_of_template": 1081.291662208534,
+        "geo_hf_energy_frac_pct_of_template": 76.59947122820381,
+        "mp_hf_energy_frac_pct_of_template": 207.31626104080252,
+        "geo_interior_hf_energy_frac_pct_of_template": 79.32647206362269,
+        "mp_interior_hf_energy_frac_pct_of_template": 77.65594264489548
+      },
+      {
+        "frame": 3,
+        "n_compositions": 2,
+        "geo": {
+          "laplacian_var": 0.04395440220832825,
+          "grad_energy": 0.010851025581359863,
+          "hf_energy_frac": 0.22306574881076813
+        },
+        "mp": {
+          "laplacian_var": 64.23640441894531,
+          "grad_energy": 86.50459289550781,
+          "hf_energy_frac": 0.6215855479240417
+        },
+        "geo_interior": {
+          "laplacian_var": 0.04471515491604805,
+          "grad_energy": 0.010808357037603855,
+          "hf_energy_frac": 0.2226032018661499
+        },
+        "mp_interior": {
+          "laplacian_var": 1.8909778594970703,
+          "grad_energy": 0.24223218858242035,
+          "hf_energy_frac": 0.26590338349342346
+        },
+        "geo_sum": 1665.4547119140625,
+        "mp_sum": 13825.71875,
+        "geo_sum_pct_of_template": 82.63233499945733,
+        "mp_sum_pct_of_template": 685.9696725378318,
+        "det_interior_min": -54.85373306274414,
+        "det_interior_max": 88.99539947509766,
+        "det_interior_mean": -3.6278727054595947,
+        "fold_frac_full_domain": 0.07989501953125,
+        "fold_frac_interior": 0.036818059661381346,
+        "frac_phi_sampling_outside_domain": 0.1783447265625,
+        "geo_laplacian_var_pct_of_template": 32.03978510741371,
+        "mp_laplacian_var_pct_of_template": 46823.992370574575,
+        "geo_interior_laplacian_var_pct_of_template": 29.564011644392057,
+        "mp_interior_laplacian_var_pct_of_template": 1250.2448344955853,
+        "geo_grad_energy_pct_of_template": 54.71514752830877,
+        "mp_grad_energy_pct_of_template": 436190.25009807793,
+        "geo_interior_grad_energy_pct_of_template": 49.51037759401455,
+        "mp_interior_grad_energy_pct_of_template": 1109.6050103095915,
+        "geo_hf_energy_frac_pct_of_template": 83.32508043514297,
+        "mp_hf_energy_frac_pct_of_template": 232.19013252469773,
+        "geo_interior_hf_energy_frac_pct_of_template": 84.19887161046324,
+        "mp_interior_hf_energy_frac_pct_of_template": 100.57701174043659
+      },
+      {
+        "frame": 4,
+        "n_compositions": 3,
+        "geo": {
+          "laplacian_var": 0.04786175861954689,
+          "grad_energy": 0.009181223809719086,
+          "hf_energy_frac": 0.28260356187820435
+        },
+        "mp": {
+          "laplacian_var": 38.7674674987793,
+          "grad_energy": 45.855796813964844,
+          "hf_energy_frac": 0.6407978534698486
+        },
+        "geo_interior": {
+          "laplacian_var": 0.050047848373651505,
+          "grad_energy": 0.009562933817505836,
+          "hf_energy_frac": 0.28530454635620117
+        },
+        "mp_interior": {
+          "laplacian_var": 8.254825592041016,
+          "grad_energy": 0.5765959024429321,
+          "hf_energy_frac": 0.5215792655944824
+        },
+        "geo_sum": 1304.470947265625,
+        "mp_sum": 11549.8310546875,
+        "geo_sum_pct_of_template": 64.72195223347184,
+        "mp_sum_pct_of_template": 573.0504120410568,
+        "det_interior_min": -105.64421844482422,
+        "det_interior_max": 187.00460815429688,
+        "det_interior_mean": -2.8457388877868652,
+        "fold_frac_full_domain": 0.15716552734375,
+        "fold_frac_interior": 0.12315237839290513,
+        "frac_phi_sampling_outside_domain": 0.3465576171875,
+        "geo_laplacian_var_pct_of_template": 34.887983546335946,
+        "mp_laplacian_var_pct_of_template": 28258.86066957332,
+        "geo_interior_laplacian_var_pct_of_template": 33.0897919256537,
+        "mp_interior_laplacian_var_pct_of_template": 5457.78630049964,
+        "geo_grad_energy_pct_of_template": 46.295348902517794,
+        "mp_grad_energy_pct_of_template": 231222.99997285657,
+        "geo_interior_grad_energy_pct_of_template": 43.80540562862911,
+        "mp_interior_grad_energy_pct_of_template": 2641.2414717417537,
+        "geo_hf_energy_frac_pct_of_template": 105.56512889271748,
+        "mp_hf_energy_frac_pct_of_template": 239.36679193334123,
+        "geo_interior_hf_energy_frac_pct_of_template": 107.91543278416873,
+        "mp_interior_hf_energy_frac_pct_of_template": 197.28550735256817
+      }
+    ]
+  },
+  "scaling_and_squaring_N10_magnitude50": {
+    "template_metrics": {
+      "laplacian_var": 0.1371869444847107,
+      "grad_energy": 0.01983184926211834,
+      "hf_energy_frac": 0.26770541071891785
+    },
+    "template_sum": 2015.5,
+    "frames": [
+      {
+        "frame": 1,
+        "n_compositions": 0,
+        "geo": {
+          "laplacian_var": 0.11697708070278168,
+          "grad_energy": 0.018379095941781998,
+          "hf_energy_frac": 0.25216686725616455
+        },
+        "mp": {
+          "laplacian_var": 1.9315638542175293,
+          "grad_energy": 0.3034694194793701,
+          "hf_energy_frac": 0.2520366311073303
+        },
+        "geo_interior": {
+          "laplacian_var": 0.12896476686000824,
+          "grad_energy": 0.020233117043972015,
+          "hf_energy_frac": 0.2490587681531906
+        },
+        "mp_interior": {
+          "laplacian_var": 2.1295082569122314,
+          "grad_energy": 0.3340824544429779,
+          "hf_energy_frac": 0.24892866611480713
+        },
+        "geo_sum": 2014.897705078125,
+        "mp_sum": 8189.51953125,
+        "geo_sum_pct_of_template": 99.97011684833168,
+        "mp_sum_pct_of_template": 406.32694275613994,
+        "det_interior_min": -4.151968479156494,
+        "det_interior_max": -3.9745137691497803,
+        "det_interior_mean": -4.063238143920898,
+        "fold_frac_full_domain": 0.03076171875,
+        "fold_frac_interior": 0.0,
+        "frac_phi_sampling_outside_domain": 0.015625,
+        "geo_laplacian_var_pct_of_template": 85.26837677022439,
+        "mp_laplacian_var_pct_of_template": 1407.9793536277787,
+        "geo_interior_laplacian_var_pct_of_template": 85.26674851789959,
+        "mp_interior_laplacian_var_pct_of_template": 1407.9523379127857,
+        "geo_grad_energy_pct_of_template": 92.67464520763927,
+        "mp_grad_energy_pct_of_template": 1530.2124147294726,
+        "geo_interior_grad_energy_pct_of_template": 92.68284358720884,
+        "mp_interior_grad_energy_pct_of_template": 1530.348082456937,
+        "geo_hf_energy_frac_pct_of_template": 94.19565580649834,
+        "mp_hf_energy_frac_pct_of_template": 94.14700675286714,
+        "geo_interior_hf_energy_frac_pct_of_template": 94.20559572993051,
+        "mp_interior_hf_energy_frac_pct_of_template": 94.15638509533821
+      },
+      {
+        "frame": 2,
+        "n_compositions": 1,
+        "geo": {
+          "laplacian_var": 0.09951898455619812,
+          "grad_energy": 0.017091013491153717,
+          "hf_energy_frac": 0.2377333790063858
+        },
+        "mp": {
+          "laplacian_var": 1.643507480621338,
+          "grad_energy": 0.282234251499176,
+          "hf_energy_frac": 0.23748327791690826
+        },
+        "geo_interior": {
+          "laplacian_var": 0.10970981419086456,
+          "grad_energy": 0.01882058195769787,
+          "hf_energy_frac": 0.23486270010471344
+        },
+        "mp_interior": {
+          "laplacian_var": 1.8118036985397339,
+          "grad_energy": 0.31079602241516113,
+          "hf_energy_frac": 0.2346133291721344
+        },
+        "geo_sum": 2014.29296875,
+        "mp_sum": 8189.5703125,
+        "geo_sum_pct_of_template": 99.94011256512032,
+        "mp_sum_pct_of_template": 406.3294622922352,
+        "det_interior_min": -4.2390031814575195,
+        "det_interior_max": -3.8888094425201416,
+        "det_interior_mean": -4.063233375549316,
+        "fold_frac_full_domain": 0.03076171875,
+        "fold_frac_interior": 0.0,
+        "frac_phi_sampling_outside_domain": 0.015625,
+        "geo_laplacian_var_pct_of_template": 72.54260595277664,
+        "mp_laplacian_var_pct_of_template": 1198.0057481377207,
+        "geo_interior_laplacian_var_pct_of_template": 72.53608380273656,
+        "mp_interior_laplacian_var_pct_of_template": 1197.8977986668535,
+        "geo_grad_energy_pct_of_template": 86.17962583953273,
+        "mp_grad_energy_pct_of_template": 1423.1363286846058,
+        "geo_interior_grad_energy_pct_of_template": 86.212374001229,
+        "mp_interior_grad_energy_pct_of_template": 1423.6787673609067,
+        "geo_hf_energy_frac_pct_of_template": 88.80409938968259,
+        "mp_hf_energy_frac_pct_of_template": 88.71067539470023,
+        "geo_interior_hf_energy_frac_pct_of_template": 88.83598333906359,
+        "mp_interior_hf_energy_frac_pct_of_template": 88.74165966824671
+      },
+      {
+        "frame": 3,
+        "n_compositions": 2,
+        "geo": {
+          "laplacian_var": 0.07192336767911911,
+          "grad_energy": 0.014973247423768044,
+          "hf_energy_frac": 0.21255503594875336
+        },
+        "mp": {
+          "laplacian_var": 1.1880515813827515,
+          "grad_energy": 0.2473309338092804,
+          "hf_energy_frac": 0.21209537982940674
+        },
+        "geo_interior": {
+          "laplacian_var": 0.07925618439912796,
+          "grad_energy": 0.016510747373104095,
+          "hf_energy_frac": 0.21020814776420593
+        },
+        "mp_interior": {
+          "laplacian_var": 1.3091734647750854,
+          "grad_energy": 0.2727304995059967,
+          "hf_energy_frac": 0.20975199341773987
+        },
+        "geo_sum": 2013.07421875,
+        "mp_sum": 8189.64892578125,
+        "geo_sum_pct_of_template": 99.87964369883403,
+        "mp_sum_pct_of_template": 406.3333627279211,
+        "det_interior_min": -4.407522678375244,
+        "det_interior_max": -3.7261087894439697,
+        "det_interior_mean": -4.0632171630859375,
+        "fold_frac_full_domain": 0.03076171875,
+        "fold_frac_interior": 0.0,
+        "frac_phi_sampling_outside_domain": 0.015625,
+        "geo_laplacian_var_pct_of_template": 52.42726846149334,
+        "mp_laplacian_var_pct_of_template": 866.0092152684093,
+        "geo_interior_laplacian_var_pct_of_template": 52.401266703986416,
+        "mp_interior_laplacian_var_pct_of_template": 865.5772216333952,
+        "geo_grad_energy_pct_of_template": 75.50101468534798,
+        "mp_grad_energy_pct_of_template": 1247.1400449867162,
+        "geo_interior_grad_energy_pct_of_template": 75.63160006259304,
+        "mp_interior_grad_energy_pct_of_template": 1249.3101370511001,
+        "geo_hf_energy_frac_pct_of_template": 79.39885689196225,
+        "mp_hf_energy_frac_pct_of_template": 79.22715467716121,
+        "geo_interior_hf_energy_frac_pct_of_template": 79.51048635730832,
+        "mp_interior_hf_energy_frac_pct_of_template": 79.33794759357686
+      },
+      {
+        "frame": 4,
+        "n_compositions": 3,
+        "geo": {
+          "laplacian_var": 0.04034684598445892,
+          "grad_energy": 0.012355593033134937,
+          "hf_energy_frac": 0.17884238064289093
+        },
+        "mp": {
+          "laplacian_var": 0.6667188405990601,
+          "grad_energy": 0.20423898100852966,
+          "hf_energy_frac": 0.17804773151874542
+        },
+        "geo_interior": {
+          "laplacian_var": 0.04432603344321251,
+          "grad_energy": 0.013714120723307133,
+          "hf_energy_frac": 0.17769230902194977
+        },
+        "mp_interior": {
+          "laplacian_var": 0.7324419617652893,
+          "grad_energy": 0.22671794891357422,
+          "hf_energy_frac": 0.1769140064716339
+        },
+        "geo_sum": 2010.602294921875,
+        "mp_sum": 8189.71630859375,
+        "geo_sum_pct_of_template": 99.75699801150459,
+        "mp_sum_pct_of_template": 406.33670595850907,
+        "det_interior_min": -4.718262672424316,
+        "det_interior_max": -3.4324209690093994,
+        "det_interior_mean": -4.063129901885986,
+        "fold_frac_full_domain": 0.03076171875,
+        "fold_frac_interior": 0.0,
+        "frac_phi_sampling_outside_domain": 0.015625,
+        "geo_laplacian_var_pct_of_template": 29.410120719581684,
+        "mp_laplacian_var_pct_of_template": 485.9929223610378,
+        "geo_interior_laplacian_var_pct_of_template": 29.306738874665744,
+        "mp_interior_laplacian_var_pct_of_template": 484.26361771809246,
+        "geo_grad_energy_pct_of_template": 62.30176959208681,
+        "mp_grad_energy_pct_of_template": 1029.8534357996318,
+        "geo_interior_grad_energy_pct_of_template": 62.82095354719742,
+        "mp_interior_grad_energy_pct_of_template": 1038.538162553154,
+        "geo_hf_energy_frac_pct_of_template": 66.80566528805416,
+        "mp_hf_energy_frac_pct_of_template": 66.50882813335808,
+        "geo_interior_hf_energy_frac_pct_of_template": 67.21148567531465,
+        "mp_interior_hf_energy_frac_pct_of_template": 66.91709549602358
+      },
+      {
+        "frame": 5,
+        "n_compositions": 4,
+        "geo": {
+          "laplacian_var": 0.039508938789367676,
+          "grad_energy": 0.012366879731416702,
+          "hf_energy_frac": 0.1813945472240448
+        },
+        "mp": {
+          "laplacian_var": 0.6531274318695068,
+          "grad_energy": 0.20464961230754852,
+          "hf_energy_frac": 0.17971643805503845
+        },
+        "geo_interior": {
+          "laplacian_var": 0.04294050484895706,
+          "grad_energy": 0.014061239548027515,
+          "hf_energy_frac": 0.18278086185455322
+        },
+        "mp_interior": {
+          "laplacian_var": 0.7095960974693298,
+          "grad_energy": 0.23286832869052887,
+          "hf_energy_frac": 0.18118083477020264
+        },
+        "geo_sum": 2005.5177001953125,
+        "mp_sum": 8189.4794921875,
+        "geo_sum_pct_of_template": 99.50472340338936,
+        "mp_sum_pct_of_template": 406.32495619883406,
+        "det_interior_min": -5.24515438079834,
+        "det_interior_max": -2.951164960861206,
+        "det_interior_mean": -4.062514781951904,
+        "fold_frac_full_domain": 0.03076171875,
+        "fold_frac_interior": 0.0,
+        "frac_phi_sampling_outside_domain": 0.015625,
+        "geo_laplacian_var_pct_of_template": 28.79934306997478,
+        "mp_laplacian_var_pct_of_template": 476.0857050375497,
+        "geo_interior_laplacian_var_pct_of_template": 28.39067845686978,
+        "mp_interior_laplacian_var_pct_of_template": 469.15877464329986,
+        "geo_grad_energy_pct_of_template": 62.35868157307552,
+        "mp_grad_energy_pct_of_template": 1031.9240006450557,
+        "geo_interior_grad_energy_pct_of_template": 64.41101797809141,
+        "mp_interior_grad_energy_pct_of_template": 1066.7115124937777,
+        "geo_hf_energy_frac_pct_of_template": 67.75901418537383,
+        "mp_hf_energy_frac_pct_of_template": 67.13216500645741,
+        "geo_interior_hf_energy_frac_pct_of_template": 69.13621273693644,
+        "mp_interior_hf_energy_frac_pct_of_template": 68.53100816701517
+      },
+      {
+        "frame": 6,
+        "n_compositions": 5,
+        "geo": {
+          "laplacian_var": 0.04416360333561897,
+          "grad_energy": 0.012618053704500198,
+          "hf_energy_frac": 0.18002033233642578
+        },
+        "mp": {
+          "laplacian_var": 0.7308769822120667,
+          "grad_energy": 0.20952880382537842,
+          "hf_energy_frac": 0.17677843570709229
+        },
+        "geo_interior": {
+          "laplacian_var": 0.047796402126550674,
+          "grad_energy": 0.014095939695835114,
+          "hf_energy_frac": 0.18207159638404846
+        },
+        "mp_interior": {
+          "laplacian_var": 0.790252149105072,
+          "grad_energy": 0.23423203825950623,
+          "hf_energy_frac": 0.17905749380588531
+        },
+        "geo_sum": 1995.135498046875,
+        "mp_sum": 8188.88818359375,
+        "geo_sum_pct_of_template": 98.98960546002853,
+        "mp_sum_pct_of_template": 406.2956181391094,
+        "det_interior_min": -6.431460857391357,
+        "det_interior_max": -2.098069667816162,
+        "det_interior_mean": -4.0578131675720215,
+        "fold_frac_full_domain": 0.03076171875,
+        "fold_frac_interior": 0.0,
+        "frac_phi_sampling_outside_domain": 0.015625,
+        "geo_laplacian_var_pct_of_template": 32.19227857395785,
+        "mp_laplacian_var_pct_of_template": 532.7598664416073,
+        "geo_interior_laplacian_var_pct_of_template": 31.60121868485916,
+        "mp_interior_laplacian_var_pct_of_template": 522.4855819466998,
+        "geo_grad_energy_pct_of_template": 63.625199736680536,
+        "mp_grad_energy_pct_of_template": 1056.5268072383362,
+        "geo_interior_grad_energy_pct_of_template": 64.56997066762092,
+        "mp_interior_grad_energy_pct_of_template": 1072.9583246090453,
+        "geo_hf_energy_frac_pct_of_template": 67.24568317576569,
+        "mp_hf_energy_frac_pct_of_template": 66.03468911306541,
+        "geo_interior_hf_energy_frac_pct_of_template": 68.86793558823364,
+        "mp_interior_hf_energy_frac_pct_of_template": 67.72786197800711
+      },
+      {
+        "frame": 7,
+        "n_compositions": 6,
+        "geo": {
+          "laplacian_var": 0.06307028234004974,
+          "grad_energy": 0.014611097052693367,
+          "hf_energy_frac": 0.21411772072315216
+        },
+        "mp": {
+          "laplacian_var": 1.0536249876022339,
+          "grad_energy": 0.24436604976654053,
+          "hf_energy_frac": 0.20696331560611725
+        },
+        "geo_interior": {
+          "laplacian_var": 0.06450516730546951,
+          "grad_energy": 0.015581878833472729,
+          "hf_energy_frac": 0.20304681360721588
+        },
+        "mp_interior": {
+          "laplacian_var": 1.0696505308151245,
+          "grad_energy": 0.25977712869644165,
+          "hf_energy_frac": 0.19504410028457642
+        },
+        "geo_sum": 1974.0831298828125,
+        "mp_sum": 8189.0244140625,
+        "geo_sum_pct_of_template": 97.94508210780513,
+        "mp_sum_pct_of_template": 406.3023772792111,
+        "det_interior_min": -8.469058990478516,
+        "det_interior_max": -0.6805387139320374,
+        "det_interior_mean": -4.0191264152526855,
+        "fold_frac_full_domain": 0.03076171875,
+        "fold_frac_interior": 0.0,
+        "frac_phi_sampling_outside_domain": 0.0242919921875,
+        "geo_laplacian_var_pct_of_template": 45.97396827879554,
+        "mp_laplacian_var_pct_of_template": 768.0213241571679,
+        "geo_interior_laplacian_var_pct_of_template": 42.648438117295534,
+        "mp_interior_laplacian_var_pct_of_template": 707.2134896506662,
+        "geo_grad_energy_pct_of_template": 73.67490978565799,
+        "mp_grad_energy_pct_of_template": 1232.1899311392738,
+        "geo_interior_grad_energy_pct_of_template": 71.37668583535677,
+        "mp_interior_grad_energy_pct_of_template": 1189.9739883963982,
+        "geo_hf_energy_frac_pct_of_template": 79.9825898730037,
+        "mp_hf_energy_frac_pct_of_template": 77.31009808517548,
+        "geo_interior_hf_energy_frac_pct_of_template": 76.80173711116497,
+        "mp_interior_hf_energy_frac_pct_of_template": 73.77473917969124
+      },
+      {
+        "frame": 8,
+        "n_compositions": 7,
+        "geo": {
+          "laplacian_var": 0.05540643632411957,
+          "grad_energy": 0.013625781051814556,
+          "hf_energy_frac": 0.2061748504638672
+        },
+        "mp": {
+          "laplacian_var": 129.30242919921875,
+          "grad_energy": 163.14881896972656,
+          "hf_energy_frac": 0.5551099181175232
+        },
+        "geo_interior": {
+          "laplacian_var": 0.054569002240896225,
+          "grad_energy": 0.013598448596894741,
+          "hf_energy_frac": 0.2109583020210266
+        },
+        "mp_interior": {
+          "laplacian_var": 0.8974985480308533,
+          "grad_energy": 0.22697731852531433,
+          "hf_energy_frac": 0.1956017166376114
+        },
+        "geo_sum": 1910.96142578125,
+        "mp_sum": 16926.279296875,
+        "geo_sum_pct_of_template": 94.81326845850906,
+        "mp_sum_pct_of_template": 839.8054724323989,
+        "det_interior_min": -11.998563766479492,
+        "det_interior_max": -0.0392686203122139,
+        "det_interior_mean": -3.852729558944702,
+        "fold_frac_full_domain": 0.03076171875,
+        "fold_frac_interior": 0.0,
+        "frac_phi_sampling_outside_domain": 0.064453125,
+        "geo_laplacian_var_pct_of_template": 40.387543094739996,
+        "mp_laplacian_var_pct_of_template": 94252.72184965774,
+        "geo_interior_laplacian_var_pct_of_template": 36.07901215374554,
+        "mp_interior_laplacian_var_pct_of_template": 593.3929464099052,
+        "geo_grad_energy_pct_of_template": 68.70655818185216,
+        "mp_grad_energy_pct_of_template": 822660.6445691581,
+        "geo_interior_grad_energy_pct_of_template": 62.291088495936144,
+        "mp_interior_grad_energy_pct_of_template": 1039.7262698084,
+        "geo_hf_energy_frac_pct_of_template": 77.01557092558888,
+        "mp_hf_energy_frac_pct_of_template": 207.3584977706599,
+        "geo_interior_hf_energy_frac_pct_of_template": 79.79422954441695,
+        "mp_interior_hf_energy_frac_pct_of_template": 73.98565558755728
+      },
+      {
+        "frame": 9,
+        "n_compositions": 8,
+        "geo": {
+          "laplacian_var": 0.04372373968362808,
+          "grad_energy": 0.010840349830687046,
+          "hf_energy_frac": 0.2236977517604828
+        },
+        "mp": {
+          "laplacian_var": 62.72075271606445,
+          "grad_energy": 85.93707275390625,
+          "hf_energy_frac": 0.620870053768158
+        },
+        "geo_interior": {
+          "laplacian_var": 0.044853635132312775,
+          "grad_energy": 0.01082982774823904,
+          "hf_energy_frac": 0.2227672040462494
+        },
+        "mp_interior": {
+          "laplacian_var": 0.7222383618354797,
+          "grad_energy": 0.17686283588409424,
+          "hf_energy_frac": 0.19299106299877167
+        },
+        "geo_sum": 1659.40185546875,
+        "mp_sum": 13617.8486328125,
+        "geo_sum_pct_of_template": 82.33201962137187,
+        "mp_sum_pct_of_template": 675.6560968897296,
+        "det_interior_min": -17.36518096923828,
+        "det_interior_max": 2.3106227672542445e-05,
+        "det_interior_mean": -3.4752209186553955,
+        "fold_frac_full_domain": 0.05426025390625,
+        "fold_frac_interior": 0.013705993012631014,
+        "frac_phi_sampling_outside_domain": 0.149169921875,
+        "geo_laplacian_var_pct_of_template": 31.8716477343083,
+        "mp_laplacian_var_pct_of_template": 45719.18483325838,
+        "geo_interior_laplacian_var_pct_of_template": 29.6555696571923,
+        "mp_interior_laplacian_var_pct_of_template": 477.5173736827991,
+        "geo_grad_energy_pct_of_template": 54.661316185947726,
+        "mp_grad_energy_pct_of_template": 433328.58987617615,
+        "geo_interior_grad_energy_pct_of_template": 49.60872954399746,
+        "mp_interior_grad_energy_pct_of_template": 810.1643715603054,
+        "geo_hf_energy_frac_pct_of_template": 83.56116193533283,
+        "mp_hf_energy_frac_pct_of_template": 231.92286330740313,
+        "geo_interior_hf_energy_frac_pct_of_template": 84.26090485342772,
+        "mp_interior_hf_energy_frac_pct_of_template": 72.9981851077381
+      },
+      {
+        "frame": 10,
+        "n_compositions": 9,
+        "geo": {
+          "laplacian_var": 0.04407753050327301,
+          "grad_energy": 0.008942943997681141,
+          "hf_energy_frac": 0.26965224742889404
+        },
+        "mp": {
+          "laplacian_var": 31.47260093688965,
+          "grad_energy": 44.75416564941406,
+          "hf_energy_frac": 0.6310157775878906
+        },
+        "geo_interior": {
+          "laplacian_var": 0.04552942141890526,
+          "grad_energy": 0.009250648319721222,
+          "hf_energy_frac": 0.2724166810512543
+        },
+        "mp_interior": {
+          "laplacian_var": 0.7190127372741699,
+          "grad_energy": 0.14001691341400146,
+          "hf_energy_frac": 0.2146666944026947
+        },
+        "geo_sum": 1299.7607421875,
+        "mp_sum": 10922.76953125,
+        "geo_sum_pct_of_template": 64.48825314748201,
+        "mp_sum_pct_of_template": 541.9384535475068,
+        "det_interior_min": -25.981298446655273,
+        "det_interior_max": 1.9355618860572577e-05,
+        "det_interior_mean": -2.722559928894043,
+        "fold_frac_full_domain": 0.1278076171875,
+        "fold_frac_interior": 0.09607632356893309,
+        "frac_phi_sampling_outside_domain": 0.3192138671875,
+        "geo_laplacian_var_pct_of_template": 32.12953730315452,
+        "mp_laplacian_var_pct_of_template": 22941.396541124384,
+        "geo_interior_laplacian_var_pct_of_template": 30.102374631556152,
+        "mp_interior_laplacian_var_pct_of_template": 475.3847096616179,
+        "geo_grad_energy_pct_of_template": 45.09384818068096,
+        "mp_grad_energy_pct_of_template": 225668.14147231798,
+        "geo_interior_grad_energy_pct_of_template": 42.37490394750786,
+        "mp_interior_grad_energy_pct_of_template": 641.3824255210299,
+        "geo_hf_energy_frac_pct_of_template": 100.72723099049362,
+        "mp_hf_energy_frac_pct_of_template": 235.71274704284446,
+        "geo_interior_hf_energy_frac_pct_of_template": 103.04064344130627,
+        "mp_interior_hf_energy_frac_pct_of_template": 81.19691581041702
+      }
+    ]
+  },
+  "low_magnitude_euler_N7_magnitude5": {
+    "template_metrics": {
+      "laplacian_var": 0.1371869444847107,
+      "grad_energy": 0.01983184926211834,
+      "hf_energy_frac": 0.26770541071891785
+    },
+    "template_sum": 2015.5,
+    "frames": [
+      {
+        "frame": 1,
+        "n_compositions": 0,
+        "geo": {
+          "laplacian_var": 0.035292383283376694,
+          "grad_energy": 0.011927918531000614,
+          "hf_energy_frac": 0.17472673952579498
+        },
+        "mp": {
+          "laplacian_var": 0.5835766792297363,
+          "grad_energy": 0.19739720225334167,
+          "hf_energy_frac": 0.17330105602741241
+        },
+        "geo_interior": {
+          "laplacian_var": 0.03839194402098656,
+          "grad_energy": 0.013505415990948677,
+          "hf_energy_frac": 0.17570152878761292
+        },
+        "mp_interior": {
+          "laplacian_var": 0.6346370577812195,
+          "grad_energy": 0.22363780438899994,
+          "hf_energy_frac": 0.17435744404792786
+        },
+        "geo_sum": 2006.58447265625,
+        "mp_sum": 8189.587890625,
+        "geo_sum_pct_of_template": 99.5576518311213,
+        "mp_sum_pct_of_template": 406.33033443934505,
+        "det_interior_min": -5.3611955642700195,
+        "det_interior_max": -1.990160346031189,
+        "det_interior_mean": -4.062802791595459,
+        "fold_frac_full_domain": 0.03076171875,
+        "fold_frac_interior": 0.0,
+        "frac_phi_sampling_outside_domain": 0.015625,
+        "geo_laplacian_var_pct_of_template": 25.72575941241259,
+        "mp_laplacian_var_pct_of_template": 425.3879124006404,
+        "geo_interior_laplacian_var_pct_of_template": 25.383337756925485,
+        "mp_interior_laplacian_var_pct_of_template": 419.5986215732185,
+        "geo_grad_energy_pct_of_template": 60.14526619958049,
+        "mp_grad_energy_pct_of_template": 995.3544908714009,
+        "geo_interior_grad_energy_pct_of_template": 61.8649294198694,
+        "mp_interior_grad_energy_pct_of_template": 1024.4287916353317,
+        "geo_hf_energy_frac_pct_of_template": 65.26828839826943,
+        "mp_hf_energy_frac_pct_of_template": 64.7357315498464,
+        "geo_interior_hf_energy_frac_pct_of_template": 66.45848011227532,
+        "mp_interior_hf_energy_frac_pct_of_template": 65.95008482648615
+      },
+      {
+        "frame": 2,
+        "n_compositions": 1,
+        "geo": {
+          "laplacian_var": 0.051505498588085175,
+          "grad_energy": 0.013216806575655937,
+          "hf_energy_frac": 0.18826594948768616
+        },
+        "mp": {
+          "laplacian_var": 0.8515441417694092,
+          "grad_energy": 0.21924284100532532,
+          "hf_energy_frac": 0.18520788848400116
+        },
+        "geo_interior": {
+          "laplacian_var": 0.056264109909534454,
+          "grad_energy": 0.014779656194150448,
+          "hf_energy_frac": 0.19079521298408508
+        },
+        "mp_interior": {
+          "laplacian_var": 0.9298185110092163,
+          "grad_energy": 0.24533574283123016,
+          "hf_energy_frac": 0.18798306584358215
+        },
+        "geo_sum": 1997.34619140625,
+        "mp_sum": 8189.23046875,
+        "geo_sum_pct_of_template": 99.09929007225254,
+        "mp_sum_pct_of_template": 406.3126007814438,
+        "det_interior_min": -6.322290897369385,
+        "det_interior_max": -0.8055382370948792,
+        "det_interior_mean": -4.0618085861206055,
+        "fold_frac_full_domain": 0.03076171875,
+        "fold_frac_interior": 0.0,
+        "frac_phi_sampling_outside_domain": 0.03118896484375,
+        "geo_laplacian_var_pct_of_template": 37.54402343571796,
+        "mp_laplacian_var_pct_of_template": 620.7180610136795,
+        "geo_interior_laplacian_var_pct_of_template": 37.19975484038517,
+        "mp_interior_laplacian_var_pct_of_template": 614.7617141941743,
+        "geo_grad_energy_pct_of_template": 66.64434769026771,
+        "mp_grad_energy_pct_of_template": 1105.5088111430457,
+        "geo_interior_grad_energy_pct_of_template": 67.7019047701933,
+        "mp_interior_grad_energy_pct_of_template": 1123.821615313246,
+        "geo_hf_energy_frac_pct_of_template": 70.32579169098655,
+        "mp_hf_energy_frac_pct_of_template": 69.1834684949508,
+        "geo_interior_hf_energy_frac_pct_of_template": 72.16761262759199,
+        "mp_interior_hf_energy_frac_pct_of_template": 71.10392794539541
+      },
+      {
+        "frame": 3,
+        "n_compositions": 2,
+        "geo": {
+          "laplacian_var": 0.0660000666975975,
+          "grad_energy": 0.01479453593492508,
+          "hf_energy_frac": 0.21065740287303925
+        },
+        "mp": {
+          "laplacian_var": 1.0962193012237549,
+          "grad_energy": 0.24606813490390778,
+          "hf_energy_frac": 0.20543792843818665
+        },
+        "geo_interior": {
+          "laplacian_var": 0.07044054567813873,
+          "grad_energy": 0.016531895846128464,
+          "hf_energy_frac": 0.20908018946647644
+        },
+        "mp_interior": {
+          "laplacian_var": 1.1674102544784546,
+          "grad_energy": 0.27522069215774536,
+          "hf_energy_frac": 0.20404775440692902
+        },
+        "geo_sum": 1987.86279296875,
+        "mp_sum": 8188.56103515625,
+        "geo_sum_pct_of_template": 98.62876670646241,
+        "mp_sum_pct_of_template": 406.27938651234183,
+        "det_interior_min": -7.078578472137451,
+        "det_interior_max": -0.29784470796585083,
+        "det_interior_mean": -4.060257434844971,
+        "fold_frac_full_domain": 0.03076171875,
+        "fold_frac_interior": 0.0,
+        "frac_phi_sampling_outside_domain": 0.037109375,
+        "geo_laplacian_var_pct_of_template": 48.10958283639966,
+        "mp_laplacian_var_pct_of_template": 799.0696967129602,
+        "geo_interior_laplacian_var_pct_of_template": 46.572691441541295,
+        "mp_interior_laplacian_var_pct_of_template": 771.8486142334053,
+        "geo_grad_energy_pct_of_template": 74.59988092580329,
+        "mp_grad_energy_pct_of_template": 1240.7725152184018,
+        "geo_interior_grad_energy_pct_of_template": 75.72847592275664,
+        "mp_interior_grad_energy_pct_of_template": 1260.7170861406769,
+        "geo_hf_energy_frac_pct_of_template": 78.69000566978559,
+        "mp_hf_energy_frac_pct_of_template": 76.74029743608355,
+        "geo_interior_hf_energy_frac_pct_of_template": 79.08384013166423,
+        "mp_interior_hf_energy_frac_pct_of_template": 77.18033941867084
+      },
+      {
+        "frame": 4,
+        "n_compositions": 3,
+        "geo": {
+          "laplacian_var": 0.05151304230093956,
+          "grad_energy": 0.013340123929083347,
+          "hf_energy_frac": 0.19527405500411987
+        },
+        "mp": {
+          "laplacian_var": 0.8578013777732849,
+          "grad_energy": 0.2229136824607849,
+          "hf_energy_frac": 0.1893315464258194
+        },
+        "geo_interior": {
+          "laplacian_var": 0.0523918941617012,
+          "grad_energy": 0.014137735590338707,
+          "hf_energy_frac": 0.18458162248134613
+        },
+        "mp_interior": {
+          "laplacian_var": 0.8660504817962646,
+          "grad_energy": 0.23544400930404663,
+          "hf_energy_frac": 0.17806093394756317
+        },
+        "geo_sum": 1978.363037109375,
+        "mp_sum": 8188.3349609375,
+        "geo_sum_pct_of_template": 98.15743175933392,
+        "mp_sum_pct_of_template": 406.2681697314562,
+        "det_interior_min": -7.739707946777344,
+        "det_interior_max": -0.10443856567144394,
+        "det_interior_mean": -4.049722194671631,
+        "fold_frac_full_domain": 0.03076171875,
+        "fold_frac_interior": 0.0,
+        "frac_phi_sampling_outside_domain": 0.044677734375,
+        "geo_laplacian_var_pct_of_template": 37.54952229195587,
+        "mp_laplacian_var_pct_of_template": 625.2791626749043,
+        "geo_interior_laplacian_var_pct_of_template": 34.63958856849208,
+        "mp_interior_laplacian_var_pct_of_template": 572.6006446030894,
+        "geo_grad_energy_pct_of_template": 67.26616238741228,
+        "mp_grad_energy_pct_of_template": 1124.0186404935107,
+        "geo_interior_grad_energy_pct_of_template": 64.76142719626381,
+        "mp_interior_grad_energy_pct_of_template": 1078.5100605333344,
+        "geo_hf_energy_frac_pct_of_template": 72.9436340041522,
+        "mp_hf_energy_frac_pct_of_template": 70.72384002899796,
+        "geo_interior_hf_energy_frac_pct_of_template": 69.8173440573551,
+        "mp_interior_hf_energy_frac_pct_of_template": 67.35091674604472
+      },
+      {
+        "frame": 5,
+        "n_compositions": 4,
+        "geo": {
+          "laplacian_var": 0.04883960634469986,
+          "grad_energy": 0.013182586058974266,
+          "hf_energy_frac": 0.19377532601356506
+        },
+        "mp": {
+          "laplacian_var": 0.8144755363464355,
+          "grad_energy": 0.221542090177536,
+          "hf_energy_frac": 0.1869337409734726
+        },
+        "geo_interior": {
+          "laplacian_var": 0.051560696214437485,
+          "grad_energy": 0.013606005348265171,
+          "hf_energy_frac": 0.18540997803211212
+        },
+        "mp_interior": {
+          "laplacian_var": 0.8556734919548035,
+          "grad_energy": 0.22707001864910126,
+          "hf_energy_frac": 0.17759446799755096
+        },
+        "geo_sum": 1969.0797119140625,
+        "mp_sum": 8188.9716796875,
+        "geo_sum_pct_of_template": 97.69683512349603,
+        "mp_sum_pct_of_template": 406.2997608378814,
+        "det_interior_min": -8.566614151000977,
+        "det_interior_max": -0.0353655181825161,
+        "det_interior_mean": -4.027453422546387,
+        "fold_frac_full_domain": 0.03076171875,
+        "fold_frac_interior": 0.0,
+        "frac_phi_sampling_outside_domain": 0.054931640625,
+        "geo_laplacian_var_pct_of_template": 35.60076837351164,
+        "mp_laplacian_var_pct_of_template": 593.6975558466555,
+        "geo_interior_laplacian_var_pct_of_template": 34.09003113460114,
+        "mp_interior_laplacian_var_pct_of_template": 565.7397615516345,
+        "geo_grad_energy_pct_of_template": 66.4717943583551,
+        "mp_grad_energy_pct_of_template": 1117.1025316368907,
+        "geo_interior_grad_energy_pct_of_template": 62.32570408204534,
+        "mp_interior_grad_energy_pct_of_template": 1040.1509058669365,
+        "geo_hf_energy_frac_pct_of_template": 72.38379138217083,
+        "mp_hf_energy_frac_pct_of_template": 69.82815194936313,
+        "geo_interior_hf_energy_frac_pct_of_template": 70.13066660654601,
+        "mp_interior_hf_energy_frac_pct_of_template": 67.17447765484357
+      },
+      {
+        "frame": 6,
+        "n_compositions": 5,
+        "geo": {
+          "laplacian_var": 0.057293426245450974,
+          "grad_energy": 0.014252923429012299,
+          "hf_energy_frac": 0.21105347573757172
+        },
+        "mp": {
+          "laplacian_var": 4.67457914352417,
+          "grad_energy": 4.968991279602051,
+          "hf_energy_frac": 0.6096004843711853
+        },
+        "geo_interior": {
+          "laplacian_var": 0.05846653878688812,
+          "grad_energy": 0.014554120600223541,
+          "hf_energy_frac": 0.20575234293937683
+        },
+        "mp_interior": {
+          "laplacian_var": 0.9699169993400574,
+          "grad_energy": 0.24342305958271027,
+          "hf_energy_frac": 0.19544905424118042
+        },
+        "geo_sum": 1959.3482666015625,
+        "mp_sum": 9157.228515625,
+        "geo_sum_pct_of_template": 97.2140047929329,
+        "mp_sum_pct_of_template": 454.34028854502606,
+        "det_interior_min": -9.23984146118164,
+        "det_interior_max": -0.011683340184390545,
+        "det_interior_mean": -3.9961655139923096,
+        "fold_frac_full_domain": 0.03076171875,
+        "fold_frac_interior": 0.0,
+        "frac_phi_sampling_outside_domain": 0.0633544921875,
+        "geo_laplacian_var_pct_of_template": 41.76303106731578,
+        "mp_laplacian_var_pct_of_template": 3407.45189790647,
+        "geo_interior_laplacian_var_pct_of_template": 38.65591960372496,
+        "mp_interior_laplacian_var_pct_of_template": 641.2733561232072,
+        "geo_grad_energy_pct_of_template": 71.86885721362059,
+        "mp_grad_energy_pct_of_template": 25055.612383528613,
+        "geo_interior_grad_energy_pct_of_template": 66.66878267981804,
+        "mp_interior_grad_energy_pct_of_template": 1115.0600922138053,
+        "geo_hf_energy_frac_pct_of_template": 78.83795668185846,
+        "mp_hf_energy_frac_pct_of_template": 227.713172749895,
+        "geo_interior_hf_energy_frac_pct_of_template": 77.82509398549213,
+        "mp_interior_hf_energy_frac_pct_of_template": 73.92791157754719
+      },
+      {
+        "frame": 7,
+        "n_compositions": 6,
+        "geo": {
+          "laplacian_var": 0.0586455836892128,
+          "grad_energy": 0.014770818874239922,
+          "hf_energy_frac": 0.21503299474716187
+        },
+        "mp": {
+          "laplacian_var": 52.72712326049805,
+          "grad_energy": 65.8704605102539,
+          "hf_energy_frac": 0.7359297275543213
+        },
+        "geo_interior": {
+          "laplacian_var": 0.055250879377126694,
+          "grad_energy": 0.014372622594237328,
+          "hf_energy_frac": 0.21119119226932526
+        },
+        "mp_interior": {
+          "laplacian_var": 0.900208592414856,
+          "grad_energy": 0.2398446798324585,
+          "hf_energy_frac": 0.19820910692214966
+        },
+        "geo_sum": 1950.689453125,
+        "mp_sum": 11619.458984375,
+        "geo_sum_pct_of_template": 96.78439360580501,
+        "mp_sum_pct_of_template": 576.5050351959811,
+        "det_interior_min": -9.791126251220703,
+        "det_interior_max": -0.0037889843806624413,
+        "det_interior_mean": -3.9592344760894775,
+        "fold_frac_full_domain": 0.03076171875,
+        "fold_frac_interior": 0.0,
+        "frac_phi_sampling_outside_domain": 0.071533203125,
+        "geo_laplacian_var_pct_of_template": 42.7486623523048,
+        "mp_laplacian_var_pct_of_template": 38434.50516267925,
+        "geo_interior_laplacian_var_pct_of_template": 36.52984417330156,
+        "mp_interior_laplacian_var_pct_of_template": 595.1847278288872,
+        "geo_grad_energy_pct_of_template": 74.48029015858997,
+        "mp_grad_energy_pct_of_template": 332144.8223997743,
+        "geo_interior_grad_energy_pct_of_template": 65.83738575448753,
+        "mp_interior_grad_energy_pct_of_template": 1098.6684304660162,
+        "geo_hf_energy_frac_pct_of_template": 80.32448584796803,
+        "mp_hf_energy_frac_pct_of_template": 274.9028215671831,
+        "geo_interior_hf_energy_frac_pct_of_template": 79.88231945485596,
+        "mp_interior_hf_energy_frac_pct_of_template": 74.97189171518592
+      }
+    ]
+  }
+}

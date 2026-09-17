@@ -1,1 +1,0 @@
-from operators.ray_transform import RayTransform

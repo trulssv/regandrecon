@@ -18,7 +18,7 @@ class HelmholtzOperator(nn.Module):
     output (torch.Tensor): The regularized velocity field. If return_fft is True, this will be the Fourier transform of the regularized velocity field; otherwise, it will be the spatial domain representation.
     
     """
-    def __init__(self, dim: int, alpha: float = 1.0, gamma: float = 1.0, beta: float = 1.0, extent: tuple[tuple[float, float], ...] | None= None, return_fft: bool = False, device: torch.device = torch.device("cpu"))->None:
+    def __init__(self, dim: int, alpha: float = 1.0, gamma: float = 1.0, beta: float = 1.0, extent: tuple[float, ...] | None= None, return_fft: bool = False, device: torch.device = torch.device("cpu"))->None:
         super().__init__()
 
         assert dim in (2, 3), f"Expected dim to be 2 or 3, but got {dim}."
@@ -34,7 +34,8 @@ class HelmholtzOperator(nn.Module):
     
         if extent is not None:
             assert len(extent) == self.dim, f"Expected extent to have length {self.dim}, but got {len(extent)}."
-            assert all(isinstance(e, tuple) and len(e) == 2 and all(isinstance(x, float) for x in e) for e in extent), "Each extent must be a tuple of two floats."
+            assert all(isinstance(e, float) for e in extent), "Each extent must be a float."
+        
 
     def compute_frequency_grid(self, shape: tuple[int, ...], device: torch.device) -> tuple[torch.Tensor, ...]:
         """Compute the frequency grid for the given spatial shape and device.
@@ -50,11 +51,11 @@ class HelmholtzOperator(nn.Module):
         
         # Get sampling units from the extent if provided
 
-        extent = self.extent if self.extent else tuple((0.0, 1.0) for _ in range(len(shape)))
+        extent = self.extent if self.extent else tuple(1.0 for _ in range(len(shape)))
 
         assert len(extent) == self.dim, f"Expected extent to have length {self.dim}, but got {len(extent)}."
-        assert all(isinstance(e, tuple) and len(e) == 2 and all(isinstance(x, float) for x in e) for e in extent), "Each extent must be a tuple of two floats."
-        spacing = tuple((e[1] - e[0])/ s for e, s in zip(extent, shape))
+        assert all(isinstance(e, float) for e in extent), "Each extent must be a float."
+        spacing = tuple(e / s for e, s in zip(extent, shape))
 
 
         if self.dim == 2:

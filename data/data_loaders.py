@@ -110,7 +110,7 @@ class RegAndReconDataset(Dataset):
     This is a generic dataset class for the RegAndRecon project. It can be used to load data for training, validation and testing. The dataset is initialized with a list of qualities (e.g., ["high", "medium"]) and a mode (e.g., "train") 
     to specify which data to load. The dataset will then load the volumes projections and meta data for the specified qualities and mode. The specific implementation of the data loading can be customized based on the requirements of the project (e.g., loading from disk, applying preprocessing, etc.).
     """
-    def __init__(self, qualities: list[str], mode: str, data_root: Path = Path("/mnt/data/LDDMM"), files: list[str] = ["volume.pt", "volume_processed.pt", "sinogram.pt", "segmentation.pt", "meta_data.json"])->None:
+    def __init__(self, qualities: list[str], mode: str, data_root: Path = Path("/media/trulssv/LDDMM"), files: list[str] = ["volume.pt", "volume_processed.pt", "sinogram.pt", "segmentation.pt", "meta_data.json"])->None:
         super().__init__()
         self.qualities = qualities
         self.mode = mode

@@ -4,8 +4,8 @@ import torch
 from operators.lddmm.lddmm_loss import LDDMMloss
 from tqdm import tqdm
 
-from test.test_models import RegistrationCNN, UNet, RegistrationCNN3D, UNet3D
-from test.test_visualization import plot_deformation_sequence_gif_3d, plot_registration_summary_3d, plot_deformed_grid, plot_deformation_sequence_gif, plot_registration_summary
+from test.models import RegistrationCNN, UNet, RegistrationCNN3D, UNet3D
+from test.visualization import plot_deformation_sequence_gif_3d, plot_registration_summary_3d, plot_deformed_grid, plot_deformation_sequence_gif, plot_registration_summary
 
 from data.data_loaders import RegAndReconDataset
 
@@ -138,7 +138,7 @@ def setup_operators_3d(shape: tuple[int, int, int], extent: tuple[tuple[float, f
     from operators.lddmm.deform import FlowDeformationOperator
     from operators.lddmm.helmholtz import HelmholtzOperator
 
-    flow_deform_op = FlowDeformationOperator(**DEFORM_PARAMS_3D, shape=shape, extent=extent, device=device)
+    flow_deform_op = FlowDeformationOperator(**DEFORM_PARAMS_3D, shape=shape, device=device)
     helmholtz_op = HelmholtzOperator(**HELMHOLTZ_PARAMS_3D, extent=extent, device=device)
 
     return flow_deform_op, helmholtz_op
