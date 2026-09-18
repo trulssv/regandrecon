@@ -63,17 +63,17 @@ def assess_data_quality(data_cfg: dict, use_gui_input: bool = False):
 
         # Visualize the data for the user to assess the data quality
 
-        vis = DynamicVisualization(x, meta_data, vmin=-1, vmax=0)
+        vis = DynamicVisualization(meta_data, vmin=-1, vmax=0)
 
         if use_gui_input:
             # New optional GUI mode: show animation + classification buttons in same window.
-            quality = vis.classify_plane_dynamic(plane="axial", slice_idx=None, prefix="")
+            quality = vis.classify_plane_dynamic(x, plane="axial", slice_idx=None, prefix="")
             while quality not in ["h", "l", "m"]:
                 print("No valid GUI selection was made. Falling back to terminal input.")
                 quality = input("Please classify the data quality of this study as high, low or medium (h/l/m): ")
         else:
             # Default behavior preserved.
-            vis.visualize_plane_dynamic(plane="axial", slice_idx=None, prefix="")
+            vis.visualize_plane_dynamic(x, plane="axial", slice_idx=None, prefix="")
             quality = input("Please classify the data quality of this study as high, low or medium (h/l/m): ")
             plt.close()  # Close the visualization after the user has made their assessment
 

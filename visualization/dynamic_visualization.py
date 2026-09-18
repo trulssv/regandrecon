@@ -4,15 +4,16 @@ from matplotlib.widgets import Button
 from visualization.static_visualization import StaticVisualization
 from pathlib import Path
 
+from typing import Tuple
 
 class DynamicVisualization(StaticVisualization):
     """This is a generic class for dynamic visualization of a 4D volume (B, T, D, H, W), where the time dimension is visualized as an animation."""
     
-    def __init__(self, meta_data: dict, batch_idx: int = 0, vmin: float =None, vmax: float=None, save_dir: str = None, setup_save_dir: bool = False, verbose: bool = False)->None:
+    def __init__(self, meta_data: dict, batch_idx: int = 0, vmin: float|None =None, vmax: float|None =None, save_dir: str|None = None, setup_save_dir: bool = False, verbose: bool = False)->None:
         super().__init__(meta_data, batch_idx, vmin, vmax)
         self.verbose = verbose
 
-        self.save_dir = self._set_up_save_dir(save_dir) if setup_save_dir else Path(save_dir)
+        self.save_dir = self._set_up_save_dir(save_dir)
         if self.save_dir is not None:
             self.save_dir.mkdir(parents=True, exist_ok=True)
             if self.verbose:
@@ -22,10 +23,10 @@ class DynamicVisualization(StaticVisualization):
                 print("No save directory provided. Dynamic visualizations will not be saved.")
 
 
-    def _set_up_save_dir(self, save_dir: str = None)->Path:
+    def _set_up_save_dir(self, save_dir: str | None = None)->Path | None:
 
 
-        save_dir = Path(save_dir) if save_dir is not None else None
+        save_dir_path = Path(save_dir) if save_dir is not None else None
 
 
 
@@ -41,12 +42,12 @@ class DynamicVisualization(StaticVisualization):
 
         assert isinstance(study_id, str), f"Expected study_id to be a string, but got {type(study_id)}. Please check the meta_data format."
             
-        save_dir = save_dir / patient_id / study_id if save_dir is not None else None
+        save_dir_path = save_dir_path / patient_id / study_id if save_dir_path is not None else None
 
-        return save_dir
+        return save_dir_path
 
 
-    def visualize_plane_dynamic(self, x: torch.Tensor, plane: str = "axial", slice_idx: int = None, prefix: str = "")->None:
+    def visualize_plane_dynamic(self, x: torch.Tensor, plane: str = "axial", slice_idx: int|None = None, prefix: str = "")->None:
         """This function createes a dynamic (temporal) gif over the speficied plane and slice."""
 
         x = x.cpu()  # Move the input tensor to CPU for visualization
@@ -150,7 +151,7 @@ class DynamicVisualization(StaticVisualization):
         self.visualize_plane_dynamic(v_positive_normalized, plane=plane, slice_idx=None, prefix=f"{prefix}_v_pos")
         self.visualize_plane_dynamic(v_negative_normalized, plane=plane, slice_idx=None, prefix=f"{prefix}_v_neg")
 
-    def prepare_velocity_field(self, v: torch.Tensor)-> torch.Tensor:
+    def prepare_velocity_field(self, v: torch.Tensor)-> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         This function prepares the velocity field for RGB-visualization. This is done by partitioning it into a positive and a negative part, and normalizing each part to [0, 1] such that (1, 1, 1) (e.g. white) corresponds to no motion.
 

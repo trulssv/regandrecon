@@ -1,12 +1,14 @@
 import torch
+
 from matplotlib import pyplot as plt
 from matplotlib.image import AxesImage
-
+from matplotlib.text import Text
+from matplotlib.axes import Axes
 
 class StaticVisualization:
     """This is a generic class for static visualization of a 4D volume (B, T, D, H, W), where """
 
-    def __init__(self, meta_data: dict, batch_idx: int = 0, vmin: float =None, vmax: float=None)->None:
+    def __init__(self, meta_data: dict, batch_idx: int = 0, vmin: float|None =None, vmax: float|None =None)->None:
 
         
         self.meta_data = meta_data
@@ -52,9 +54,9 @@ class StaticVisualization:
         pixel_spacing = self.meta_data["resampled_pixel_spacing"]
         slice_thickness = self.meta_data["resampled_slice_thickness"]
 
-        self.X = self.w * pixel_spacing[0]
-        self.Y = self.h * pixel_spacing[1]
-        self.Z = self.d * slice_thickness
+        self.X: float = self.w * pixel_spacing[0]
+        self.Y: float = self.h * pixel_spacing[1]
+        self.Z: float = self.d * slice_thickness
 
 
     def _extract_volume(self, x: torch.Tensor, time_bin: int)->torch.Tensor:
@@ -62,7 +64,7 @@ class StaticVisualization:
         return volume
 
 
-    def _extract_slice(self, x: torch.Tensor, plane:str="axial", slice_idx:int=None, time_bin:int=0)->torch.Tensor:
+    def _extract_slice(self, x: torch.Tensor, plane:str="axial", slice_idx:int|None =None, time_bin:int=0)->torch.Tensor:
         
         def _extent(plane: str)->list[float]:
             if plane == "axial":
@@ -97,7 +99,7 @@ class StaticVisualization:
   
 
 
-    def visualize_plane(self, x:torch.Tensor, ax: plt.axes, plane="axial", slice_idx=None, time_bin=None, prefix:str = "", save: bool = False)->tuple[AxesImage, plt.Text]:
+    def visualize_plane(self, x:torch.Tensor, ax: Axes, plane:str="axial", slice_idx:int|None=None, time_bin: int=0, prefix:str = "", save: bool = False)->tuple[AxesImage, Text]:
         
 
 
@@ -119,7 +121,7 @@ class StaticVisualization:
         
 
 
-    def plot_plane_rgb(self, x: torch.Tensor, ax: plt.axes, plane="axial", slice_idx=None, time_bin=None, prefix:str = "")->tuple[AxesImage, plt.Text]:
+    def plot_plane_rgb(self, x: torch.Tensor, ax: Axes, plane="axial", slice_idx=None, time_bin=None, prefix:str = "")->tuple[AxesImage, Text]:
         """This function plots a 2D slice with 3 channels (C, H, W) as an RGB image."""
 
 
@@ -138,7 +140,7 @@ class StaticVisualization:
         title = ax.set_title(f"{prefix} Plane {plane}, Slice {slice_idx}, Time Bin {time_bin}")
         return im, title
 
-    def plot_plane_grayscale(self, x: torch.Tensor, ax: plt.axes, plane="axial", slice_idx=None, time_bin=None, prefix:str = "")->tuple[AxesImage, plt.Text]:
+    def plot_plane_grayscale(self, x: torch.Tensor, ax: Axes, plane="axial", slice_idx=None, time_bin=None, prefix:str = "")->tuple[AxesImage, Text]:
         """This function plots a 2D slice with 1 channel (H, W) as a grayscale image."""
 
         if ax is None:
@@ -156,13 +158,14 @@ class StaticVisualization:
 
         extent = [self.Z, self.Y, self.X]
         del extent[{"axial": 0, "coronal": 1, "sagittal": 2}[plane]] 
-        extent =torch.tensor([0, extent[0], 0, extent[1]])
+        extent = [0, float(extent[0]), 0, float(extent[1])]
+        
         assert len(extent) == 4, f"Expected extent to have 4 elements for 2D visualization, but got {len(extent)} elements." 
 
 
         # Plot the slice with correct aspect ratio and physical dimensions
 
-        im = ax.imshow(x, cmap="gray", vmin=self.vmin, vmax=self.vmax, aspect='equal', origin='lower', extent=extent)
+        im = ax.imshow(x, cmap="gray", vmin=self.vmin, vmax=self.vmax, aspect='equal', origin='lower', extent=extent) # type ignore
         # plt.colorbar()  # Add a colorbar to show the intensity scale
         ax.axis("off")
         title = ax.set_title(f"{prefix} Plane {plane}, Slice {slice_idx}, Time Bin {time_bin}")

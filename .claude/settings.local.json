@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 /tmp/claude-1002/-workspace-RegAndRecon/0f0d6f0f-4085-432f-b2af-3b80daf2385e/scratchpad/explore2.py)"
+    ]
+  },
+  "outputStyle": "default"
+}
