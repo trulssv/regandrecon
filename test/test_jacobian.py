@@ -16,10 +16,11 @@ that only flips the determinant's sign in odd dimensions, will pass a naive isot
 development of this function. See BLUR_STATUS_REPORT.md / BOUNDARY_FLUX_STATUS_REPORT.md
 in research/lddmm/ for the history.
 
-Run directly: python test/test_jacobian.py
+Run with pytest (one test per case), or directly for a summary table: python test/test_jacobian.py
 """
 import sys
 
+import pytest
 import torch
 
 from operators.lddmm.deform import GroupAction, VelocityIntegrator
@@ -125,6 +126,12 @@ def build_cases() -> list:
     cases.append(("3D translation", shape_3d, extent_3d, lambda g: g + 0.2, 1.0))
 
     return cases
+
+
+@pytest.mark.parametrize("case", build_cases(), ids=lambda case: case[0])
+def test_jacobian_determinant_case(case):
+    result = run_case(*case)
+    assert result["status"] == "PASS", result
 
 
 def main() -> int:

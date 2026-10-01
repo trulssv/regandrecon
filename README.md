@@ -8,27 +8,25 @@ This repo implements a pipeline for training deep learning models that jointly r
 
 | Folder | Purpose |
 |---|---|
-| `data/` | Data loading, quality triage, preprocessing, denoising, segmentation, and the end-to-end data pipeline |
+| `data/` | The data pipeline: quality triage, patient-grouped split, preprocessing, projection simulation and the quality loader (see [`data/README.md`](data/README.md)) |
+| `tracking/` | Run bookkeeping: config, git commit, environment and results of each simulation (and later training) run |
 | `operators/` | Physics/math operators: CT ray transform (ODL/ASTRA) and LDDMM diffeomorphic registration operators |
 | `model/` | The HLPD reconstruction+registration network and its loss/quality-measure functions |
 | `train/` | Training and evaluation entry points (single-GPU and multi-GPU) |
 | `visualization/` | Static/dynamic (GIF) volume visualization and a Streamlit checkpoint viewer |
-| `test/` | Unit/manual test scripts for the operators, deformation and data pipeline |
+| `test/` | pytest suite for the operators, deformation, registration, data pipeline and run tracking |
 
-Each of `data/`, `model/`, `operators/`, `train/` has a matching `*.json` config file (e.g. `data/preprocess.json`, `model/model.json`, `operators/ray_trafo.json`, `train/train.json`) that drives its behavior — see [Configuration](#configuration) below.
+Each of `data/`, `model/`, `train/` has matching `*.json` config files (e.g. `data/configs/preprocess.json`, `data/configs/ray_trafo/<geometry>.json`, `model/model.json`, `train/train.json`) that drive its behavior — see [Configuration](#configuration) below.
 
 ## Data pipeline (`data/`)
 
-`data/data_pipeline.py` orchestrates the full per-study pipeline (`data_pipeline(steps, mode)` for `mode` in `train`/`val`/`test`), with each stage individually toggleable via a `steps` dict:
+See [`data/README.md`](data/README.md) for the full description. In short:
 
-1. **Load** — `RegAndReconDataset` / `RawDataset` (`data/data_loaders.py`) load raw or processed studies (volumes, sinograms, segmentations, metadata) organized as `patient/study/series` under a data root.
-2. **Quality triage & splitting** — `data/prepare_datasets.py` lets a user step through studies, visualize them, and label data quality (high/medium/low) via terminal or GUI input; results go to `data/quality_assessment.json`. It then performs a train/val/test split (ratios in `data/preprocess.json`) and organizes studies into `<quality>/<split>/` folders.
-3. **Volume preprocessing** — `VolumePreprocessor` (`data/preprocess_volume.py`) stacks 3D volumes into 4D spatio-temporal tensors `(B, T, D, H, W)`, normalizes HU values to `[0, 1]`, and resizes to a target shape; it also supports rescaling back to HU / linear attenuation coefficients for simulation.
-4. **Denoising** — `Denoiser` (`data/denoising/denoising.py`) applies a pretrained 2D DRUNet (via `deepinv`) slice-wise as a motion-artifact/noise cleanup step (acknowledged as an imperfect plug-and-play choice, since it's trained for 2D Gaussian noise rather than 3D Poisson CT noise).
-5. **Segmentation** — `ModifiedSegmenter` (`data/segmentation/segmentation.py`) wraps `totalsegmentator` for organ/tissue segmentation, with supporting material-decomposition/tissue-composition utilities (`material_extractor.py`, `tissue.py`, `case.py`) for generating virtual non-contrast / material maps.
-6. **CT simulation** — a `DynamicRayTransform` (see below) forward-projects the preprocessed volume to per-time-bin sinograms and adds Poisson noise based on an initial photon flux (`N0`) and the projected path lengths.
-7. **Reconstruction baselines** — optional adjoint (backprojection) and FBP reconstructions from the simulated sinogram, for comparison against the learned model.
-8. **Visualization & saving** — intermediate volumes, sinograms, segmentations and reconstructions can be saved as `.pt` tensors and visualized (axial/coronal/sagittal, static + animated) via the `visualization/` module. A run config summarizing all steps/configs used is written to `data/data_pipeline_run_config.json`.
+1. **Triage** (`data/scripts/triage.sh`): label each raw 4D CT study as high, medium or low quality.
+2. **Simulate** (`data/scripts/simulate.sh`): patient-grouped train/val/test split, preprocessing to attenuation values, and forward projection of each time bin with its own (limited-angle) geometry, either `parallel3d` (default) or `conebeam`. Clean projections are stored, and every run is tracked (config, git commit, environment) in the output directory.
+3. **Load** (`data.loaders.get_quality_loader`): simulated studies filtered by quality and split, with Poisson noise added on the fly.
+
+The `data/denoising/` and `data/segmentation/` packages are currently unused.
 
 ## Operators (`operators/`)
 
@@ -61,32 +59,33 @@ Each of `data/`, `model/`, `operators/`, `train/` has a matching `*.json` config
 
 ## Visualization (`visualization/`)
 
-- **`static_visualization.py` / `dynamic_visualization.py`** — `StaticVisualization`/`DynamicVisualization` classes render axial/coronal/sagittal slices of a 4D `(B, T, D, H, W)` volume, either as a single static image or as an animated GIF over time, using metadata (pixel spacing, slice thickness) for physically correct aspect ratios. Also used interactively for the data-quality triage step (`data/prepare_datasets.py`).
+- **`static_visualization.py` / `dynamic_visualization.py`** — `StaticVisualization`/`DynamicVisualization` classes render axial/coronal/sagittal slices of a 4D `(B, T, D, H, W)` volume, either as a single static image or as an animated GIF over time, using metadata (pixel spacing, slice thickness) for physically correct aspect ratios. Also used interactively for the data-quality triage step (`data/triage.py`).
 - **`checkpoint_viewer.py`** — a Streamlit app (`streamlit run visualization/checkpoint_viewer.py`) for browsing training runs under a checkpoint directory: loss curves and per-epoch quality-measure plots for train/val.
 - **`gifs/`, `plots/`** — output directories for generated visualizations.
 
 ## Tests (`test/`)
 
-Manual/exploratory test scripts (not a pytest suite in the strict sense) covering:
-- `test_dynamic_ray_transform.py` / `test_dynamic_ray_transform_on_data.py` — ray transform correctness/behavior, including on real preprocessed data.
-- `test_deform.py` — the LDDMM deformation operators (group action, velocity integration).
-- `test_diffeomorphic_registration.py` — end-to-end diffeomorphic registration behavior.
-- `test_data_pipeline.py` — the data pipeline.
+Run `pytest` from the repository root (`pytest.ini` disables ODL's incompatible pytest plugin):
+- `test_ray_trafo.py`: ray transform correctness for all geometries (shapes, adjoint consistency, FBP accuracy), including limited-angle time bins and a coupling with the deformation operator.
+- `test_jacobian.py`: Jacobian determinants of the deformation operators against closed-form answers in 2D and 3D.
+- `test_diffeomorphic_registration.py`: small 2D and 3D registrations on synthetic data. Run the file directly for the full demos with plots.
+- `test_data_pipeline.py`: splitting, transforms, noise, loaders, and an end-to-end pipeline run on tiny synthetic data.
+- `test_tracking.py`: run bookkeeping.
 
-Example outputs (sinograms, backprojections, deformed phantoms, registration results) are saved under `test/plots/`.
+Tests that need real simulated data are skipped when it is not available. `test_ray_trafo_visualization.py` is a script that renders projection GIFs. Example outputs are saved under `test/plots/`.
 
 ## Configuration
 
 Behavior is driven by JSON config files rather than CLI flags:
 
-- `data/data.json` — raw data root and organization, studies to skip.
-- `data/preprocess.json` — target volume shape, HU/normalization ranges, time bins, voxel spacing, train/val/test split ratios.
-- `operators/ray_trafo.json` — CT geometry (`parallel`/`cone`/`helical`), detector shape/extent, source/detector radii, photon flux `N0`, and dynamic (per-time-bin) acquisition parameters.
+- `data/config.py` — raw and simulated data roots (overridable with `REGANDRECON_DATA_ROOT` / `REGANDRECON_SIMULATED_ROOT`), studies to skip, available geometries.
+- `data/configs/preprocess.json` — target volume shape, HU/normalization ranges, attenuation of water and air, time bins, train/val/test split ratios.
+- `data/configs/ray_trafo/<geometry>.json` — CT geometry (`parallel3d`, `conebeam`), detector shape/extent, source/detector radii, gantry speed, views and photon flux per time bin.
 - `model/model.json` — channel widths for the λ/γ/σ CNN blocks, number of HLPD unrolled iterations, dropout, batch norm.
 - `model/loss/loss.json` — per-term loss weights (image data/consistency terms, regularization terms).
 - `train/train.json` — optimizer/scheduler settings, epoch count, logging/checkpoint intervals and directory, device, batch size.
 
-Generated/derived config: `data/data_pipeline_run_config.json` records the exact steps and configs used for a given data-pipeline run and is read back by the model to reconstruct matching operators at train/eval time.
+Generated: each simulated dataset directory holds `config.json` (the exact simulation config), `splits.json` and `runs.jsonl` (one record per run). See [`data/README.md`](data/README.md#tracking-parameters). The model code still reads the removed `data/data_pipeline_run_config.json` and is due for a rewrite.
 
 ## Environment
 

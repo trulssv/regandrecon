@@ -1,0 +1,14 @@
+{
+    "geometry": "ConeBeamGeometry",
+    "nDetectorCols": 512,
+    "nDetectorRows": 96,
+    "DetectorColExtent": 908.8,
+    "DetectorRowExtent": 80.0,
+    "GantrySpeed": 1.5707963267948966,
+    "nViews": 512,
+    "Flux": 1e15,
+    "rotAxis": [1.0, 0.0, 0.0],
+    "source_radius": 540.0,
+    "det_radius": 950.0,
+    "pitch": 0.0
+}

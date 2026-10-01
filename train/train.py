@@ -9,7 +9,7 @@ from datetime import datetime
 from model.model import HLPDModel, HLPDModelProfiling, ResidualHLPDModel
 from model.loss.loss import HLPDLoss
 from model.loss.quality_measures import compute_quality_measures
-from data.data_loaders import RegAndReconDataset
+from data.loaders import RegAndReconDataset
 
 # Visualization
 

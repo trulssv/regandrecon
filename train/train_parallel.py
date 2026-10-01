@@ -16,7 +16,7 @@ from datetime import datetime
 
 # Model stuff
 
-from data.data_loaders import RegAndReconDataset
+from data.loaders import RegAndReconDataset
 from model.model import HLPDModel, HLPDModelWithLoss, ResidualHLPDModelWithLoss
 
 

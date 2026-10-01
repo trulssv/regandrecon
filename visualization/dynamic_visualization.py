@@ -4,10 +4,13 @@ from matplotlib.widgets import Button
 from visualization.static_visualization import StaticVisualization
 from pathlib import Path
 
-from typing import Tuple
+from typing import Tuple, List
 
 class DynamicVisualization(StaticVisualization):
-    """This is a generic class for dynamic visualization of a 4D volume (B, T, D, H, W), where the time dimension is visualized as an animation."""
+    """
+    This is a generic class for dynamic visualization of 4DCT spatio temporal valumes of the format list[torch.Tensor, ...], where the list represents time and 
+    each tensor has the shape (B, D, H, W) or (B, D, H, W, C) for RGB channels.
+    """
     
     def __init__(self, meta_data: dict, batch_idx: int = 0, vmin: float|None =None, vmax: float|None =None, save_dir: str|None = None, setup_save_dir: bool = False, verbose: bool = False)->None:
         super().__init__(meta_data, batch_idx, vmin, vmax)
@@ -47,11 +50,12 @@ class DynamicVisualization(StaticVisualization):
         return save_dir_path
 
 
-    def visualize_plane_dynamic(self, x: torch.Tensor, plane: str = "axial", slice_idx: int|None = None, prefix: str = "")->None:
+    def visualize_plane_dynamic(self, x: list[torch.Tensor], plane: str = "axial", slice_idx: int|None = None, prefix: str = "")->None:
         """This function createes a dynamic (temporal) gif over the speficied plane and slice."""
 
-        x = x.cpu()  # Move the input tensor to CPU for visualization
-        self._init_shape(x.shape)  # Initialize the shape and geometry if not already done
+        x = [t.cpu() for t in x]  # Move the input tensors to CPU for visualization
+
+        self._init_shape(x)  # Initialize the shape and geometry if not already done
 
         if slice_idx is None:
             slice_idx = self.slice_indices[{"axial": 0, "coronal": 1, "sagittal": 2}[plane]]
@@ -91,11 +95,11 @@ class DynamicVisualization(StaticVisualization):
     
 
 
-    def visualize_slices(self, x: torch.Tensor, plane: str = "axial", time_bin: int = 0, prefix: str = "")->None:
+    def visualize_slices(self, x: list[torch.Tensor], plane: str = "axial", time_bin: int = 0, prefix: str = "")->None:
         """This function visualizes all slices_indices for the provided plane and time bin."""
-
-        x = x.cpu()  # Move the input tensor to CPU for visualization
-        self._init_shape(x.shape)  # Initialize the shape and geometry if not already done
+    
+        x = [t.cpu() for t in x]  # Move the input tensors to CPU for visualization
+        self._init_shape(x)  # Initialize the shape and geometry if not already done
 
 
         # Get number of slices in the provided plane
@@ -135,11 +139,11 @@ class DynamicVisualization(StaticVisualization):
         anim.save(save_path, writer=PillowWriter(fps=num_slices//10))  # Adjust fps to make the animation not too fast or too slow
         plt.close(fig)  # Close the figure to free up memory after saving the animation
 
-    def plot_velocity_field(self, v: torch.Tensor, plane: str = "axial", time_bin: int = 0, prefix: str = "")->None:
+    def plot_velocity_field(self, v: list[torch.Tensor], plane: str = "axial", time_bin: int = 0, prefix: str = "")->None:
         """This function visualizes the velocity field for a specific plane, slice, and time bin."""    
 
-        v = v.cpu()  # Move the input tensor to CPU for visualization
-        self._init_shape(v.shape)  # Initialize the shape and geometry if not already done
+        v = [t.cpu() for t in v]  # Move the input tensors to CPU for visualization
+        self._init_shape(v)  # Initialize the shape and geometry if not already done
         v_physical, v_magnitude, v_positive_normalized, v_negative_normalized = self.prepare_velocity_field(v)
 
         # Visualize the positive and negative parts of the velocity field as RGB images
@@ -151,7 +155,7 @@ class DynamicVisualization(StaticVisualization):
         self.visualize_plane_dynamic(v_positive_normalized, plane=plane, slice_idx=None, prefix=f"{prefix}_v_pos")
         self.visualize_plane_dynamic(v_negative_normalized, plane=plane, slice_idx=None, prefix=f"{prefix}_v_neg")
 
-    def prepare_velocity_field(self, v: torch.Tensor)-> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    def prepare_velocity_field(self, v: list[torch.Tensor])-> tuple[list[torch.Tensor], ...]:
         """
         This function prepares the velocity field for RGB-visualization. This is done by partitioning it into a positive and a negative part, and normalizing each part to [0, 1] such that (1, 1, 1) (e.g. white) corresponds to no motion.
 
@@ -165,21 +169,18 @@ class DynamicVisualization(StaticVisualization):
             v_negative: torch.Tensor of shape (B, T-1, D, H, W, 3) representing the negative part of the velocity field, normalized to [0, 1].
         """
 
-        assert v.dim() == 6, f"Expected velocity field to have 6 dimensions (B, T-1, D, H, W, 3), but got {v.shape}."
-        assert v.shape[-1] == 3, f"Expected last dimension of velocity field to be 3 (corresponding to the velocity components vx, vy, vz), but got {v.shape[-1]}."
+        assert v[0].dim() == 6, f"Expected velocity field to have 6 dimensions (B, T-1, D, H, W, 3), but got {v[0].shape}."
+        assert v[0].shape[-1] == 3, f"Expected last dimension of velocity field to be 3 (corresponding to the velocity components vx, vy, vz), but got {v[0].shape[-1]}."
 
         def _convert_to_physical_units(v: torch.Tensor)-> torch.Tensor:
             """This function converts the velocity field from the model's output units to physical units (e.g., mm/s). The specific conversion will depend on the units used in the model and the desired output units. This is a placeholder implementation and should be customized based on the requirements of the project."""
             
             scale_z, scale_xy = self.meta_data.get("resampled_slice_thickness"), self.meta_data.get("resampled_pixel_spacing")
 
-            if isinstance(scale_z, list):
-                scale_z = torch.tensor(scale_z).to(v.device).squeeze()  # Convert to tensor and remove any singleton dimensions
-
-            if isinstance(scale_xy, list):
-                scale_xy = torch.tensor(scale_xy).to(v.device).squeeze()  # Convert to tensor and remove any singleton dimensions
-
-            scale = torch.cat([scale_z, scale_xy], dim=0)
+            scale_z = torch.tensor(scale_z).to(v.device).squeeze()  # Convert to tensor and remove any singleton dimensions
+            scale_xy = torch.tensor(scale_xy).to(v.device).squeeze()  # Convert to tensor and remove any singleton dimensions
+   
+            scale = torch.cat((scale_z, scale_xy), dim=0)
 
             scale = scale.view(1, 1, 1, 1, 1, 3)  # Shape: (1, 1, 1, 1, 1, 3)
             
@@ -193,26 +194,26 @@ class DynamicVisualization(StaticVisualization):
             """This function computes the magnitude of the velocity field."""
             return torch.sqrt(torch.sum(v**2, dim=-1))  # Shape: (B, T-1, D, H, W)
 
-        v_physical = _convert_to_physical_units(v)
-        v_magnitude = _magnitude(v_physical)
+        v_physical = [_convert_to_physical_units(vt) for vt in v]
+        v_magnitude = [_magnitude(vt) for vt in v_physical]
 
-        v_positive = torch.clamp(v_physical, min=0.0)
-        v_negative = -torch.clamp(v_physical, max=0.0)
+        v_positive = [torch.clamp(vt, min=0.0) for vt in v_physical]
+        v_negative = [-torch.clamp(vt, max=0.0) for vt in v_physical]
 
-        def normalize(v_part):
-            max_val = torch.max(v_magnitude)
+        def normalize(v_part, v_mag):
+            max_val = torch.max(v_mag)
             if max_val > 0:
                 return 1 - v_part / max_val  # Normalize to [0, 1]
             else:
                 return 1 - v_part  # If the magnitude is zero, return the original tensor to avoid division by zero
 
-        v_positive_normalized = normalize(v_positive)
-        v_negative_normalized = normalize(v_negative)
+        v_positive_normalized = [normalize(vp, vm) for vp, vm in zip(v_positive, v_magnitude)]
+        v_negative_normalized = [normalize(vn, vm) for vn, vm in zip(v_negative, v_magnitude)]
 
         return v_physical, v_magnitude, v_positive_normalized, v_negative_normalized
     
 
-    def classify_plane_dynamic(self, x: torch.Tensor, plane: str = "axial", slice_idx: int = None, prefix: str = "") -> str | None:
+    def classify_plane_dynamic(self, x: list[torch.Tensor], plane: str = "axial", slice_idx: int | None = None, prefix: str = "") -> str | None:
         """
         Show dynamic visualization and collect quality classification via on-figure buttons.
 
@@ -221,8 +222,8 @@ class DynamicVisualization(StaticVisualization):
             or None if the window was closed without selection.
         """
 
-        x = x.cpu()  # Move the input tensor to CPU for visualization
-        self._init_shape(x.shape)  # Initialize the shape and geometry if not already done
+        x = [t.cpu() for t in x]  # Move each tensor in the input list to CPU for visualization
+        self._init_shape(x)  # Initialize the shape and geometry if not already done
 
         if slice_idx is None:
             slice_idx = self.slice_indices[{"axial": 0, "coronal": 1, "sagittal": 2}[plane]]
@@ -247,19 +248,21 @@ class DynamicVisualization(StaticVisualization):
         anim = FuncAnimation(fig, update, frames=self.time_bins, blit=False)
 
         # Classification state
-        selected = {"value": None}
+        selected = {"value": ""}
 
         # Button axes (left, bottom, width, height)
-        ax_good = fig.add_axes([0.16, 0.06, 0.18, 0.08])
-        ax_bad = fig.add_axes([0.41, 0.06, 0.18, 0.08])
-        ax_uncertain = fig.add_axes([0.66, 0.06, 0.18, 0.08])
+        ax_good = fig.add_axes((0.16, 0.06, 0.18, 0.08))
+        ax_bad = fig.add_axes((0.41, 0.06, 0.18, 0.08))
+        ax_uncertain = fig.add_axes((0.66, 0.06, 0.18, 0.08))
 
         btn_good = Button(ax_good, "High (h)")
         btn_bad = Button(ax_bad, "Low (l)")
         btn_uncertain = Button(ax_uncertain, "Medium (m)")
 
         def _select(value: str):
-            selected["value"] = value
+            selected["value"] = value 
+            assert isinstance(selected["value"], str), "Selected value must be a string"
+            assert anim.event_source is not None, "Animation event source must be available"
             anim.event_source.stop()
             plt.close(fig)
 

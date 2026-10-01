@@ -7,19 +7,19 @@ from tqdm import tqdm
 from test.models import RegistrationCNN, UNet, RegistrationCNN3D, UNet3D
 from test.visualization import plot_deformation_sequence_gif_3d, plot_registration_summary_3d, plot_deformed_grid, plot_deformation_sequence_gif, plot_registration_summary
 
-from data.data_loaders import RegAndReconDataset
+from data.loaders import RegAndReconDataset
 
 HELMHOLTZ_PARAMS: dict = {
     "dim": 2,
     "alpha": 1.0,
     "gamma": 1.0,
     "beta": 1.0,
-    "extent": ((0.0, 450.0), (0.0, 450.0)),
+    "extent": (450.0, 450.0),
     "return_fft": False,
 }
 DEFORM_PARAMS: dict = {
      "N": 7,  # Default number of integration steps for the velocity field
-    "extent": ((0.0, 450.0), (0.0, 450.0)),
+    "extent": (450.0, 450.0),
     "action": "geometric",
     "integration": "euler",
 }
@@ -62,22 +62,12 @@ def get_target_and_template(device: torch.device, shape=(128, 128)):
 
         return template, target
 
-def get_target_and_template_from_dataset(idx: int| None = None, device: torch.device=torch.device("cpu")):
+def get_target_and_template_from_dataset(idx: int| None = None, time_bins: tuple[int, int] = (0, 4), device: torch.device=torch.device("cpu")):
+    """2D counterpart of get_3d_target_and_template_from_dataset: the central axial slices (1, H, W) of two time bins of the same study."""
 
-
-
-    dataset = RegAndReconDataset(qualities=["high"], mode="val")
-    if idx is None:
-        idx = 0
-
-    
-    data = dataset[idx]
-
-    print(data.keys())
-
-    template = data["volume"].to(device)
-    target = data["volume_processed"].to(device)
-    return template, target
+    template, target, _ = get_3d_target_and_template_from_dataset(idx=idx, time_bins=time_bins, device=device)
+    d = template.shape[1]
+    return template[:, d // 2], target[:, d // 2]
 
 
 def get_3d_target_and_template_from_dataset(
@@ -90,7 +80,7 @@ def get_3d_target_and_template_from_dataset(
     the 3D diffeomorphic registration pipeline. Also returns the study's meta_data, which the 3D pipeline
     needs to compute a physically correct extent for the Helmholtz regularizer/deformation operator."""
 
-    dataset = RegAndReconDataset(qualities=["high"], mode="val")
+    dataset = RegAndReconDataset(qualities=["high"], mode="val", load_volume=True)
     if idx is None:
         idx = 0
 
@@ -100,14 +90,14 @@ def get_3d_target_and_template_from_dataset(
     t_template, t_target = time_bins
     template = volume[t_template].unsqueeze(0).to(device)  # (1, D, H, W)
     target = volume[t_target].unsqueeze(0).to(device)  # (1, D, H, W)
-    meta_data = data["meta_data"]
+    meta_data = data["meta"]
 
     return template, target, meta_data
 
 
 def compute_3d_extent(
     meta_data: dict, shape: tuple[int, int, int]
-) -> tuple[tuple[float, float], tuple[float, float], tuple[float, float]]:
+) -> tuple[float, float, float]:
     """Compute the physical extent (in mm) of a (D, H, W) volume from its meta_data, for use as the
     `extent` kwarg of HelmholtzOperator(dim=3, ...) / FlowDeformationOperator(..., extent=...). The
     returned tuple is ordered (D, H, W) to match the spatial axis order of the (B, D, H, W, 3) velocity
@@ -121,7 +111,7 @@ def compute_3d_extent(
     Y = h * pixel_spacing[1]
     X = w * pixel_spacing[0]
 
-    return ((0.0, float(Z)), (0.0, float(Y)), (0.0, float(X)))
+    return (float(Z), float(Y), float(X))
 
 
 def setup_operators(device: torch.device):
@@ -134,11 +124,11 @@ def setup_operators(device: torch.device):
     return flow_deform_op, helmholtz_op
 
 
-def setup_operators_3d(shape: tuple[int, int, int], extent: tuple[tuple[float, float], ...], device: torch.device):
+def setup_operators_3d(shape: tuple[int, int, int], extent: tuple[float, float, float], device: torch.device):
     from operators.lddmm.deform import FlowDeformationOperator
     from operators.lddmm.helmholtz import HelmholtzOperator
 
-    flow_deform_op = FlowDeformationOperator(**DEFORM_PARAMS_3D, shape=shape, device=device)
+    flow_deform_op = FlowDeformationOperator(**DEFORM_PARAMS_3D, shape=shape, extent=extent, device=device)
     helmholtz_op = HelmholtzOperator(**HELMHOLTZ_PARAMS_3D, extent=extent, device=device)
 
     return flow_deform_op, helmholtz_op
@@ -239,6 +229,38 @@ def diffeomorphic_registration_3d(
     # Returning flow_deform_op lets the caller re-integrate/animate the learned velocity field without
     # re-deriving the same data-dependent extent used during training.
     return velocity_field, deformed_template, flow_deform_op
+
+
+# ---------------------------------------------------------------------------
+# pytest entry points: small CPU registrations on synthetic data. main()/main_3d() are the full demos with plots.
+# ---------------------------------------------------------------------------
+
+def test_registration_2d_reduces_mismatch():
+    torch.manual_seed(0)
+    template, target = get_target_and_template(device=torch.device("cpu"), shape=(32, 32))
+    velocity_field, deformed_template = diffeomorphic_registration(
+        template, target, num_epochs=100, learning_rate=1e-2, lambda_reg=1e-8,
+        model_cls=UNet, model_kwargs={"base_channels": 8, "depth": 2},
+    )
+    assert velocity_field.shape == (1, 32, 32, 2) and torch.isfinite(velocity_field).all()
+    assert ((deformed_template - target) ** 2).mean() < 0.5 * ((template - target) ** 2).mean()
+
+
+def test_registration_3d_reduces_mismatch():
+    torch.manual_seed(0)
+    shape = (12, 16, 16)
+    Z, Y, X = torch.meshgrid(*[torch.arange(n) for n in shape], indexing="ij")
+    template = (((Z - 6) / 4) ** 2 + ((Y - 8) / 5) ** 2 + ((X - 8) / 5) ** 2 <= 1).float().unsqueeze(0)  # ellipsoid
+    target = torch.zeros(1, *shape)
+    target[:, 3:9, 3:13, 3:13] = 1.0  # box
+    meta_data = {"resampled_pixel_spacing": [2.0, 2.0], "resampled_slice_thickness": 3.0}  # anisotropic extent
+
+    velocity_field, deformed_template, _ = diffeomorphic_registration_3d(
+        template, target, meta_data, num_epochs=100, learning_rate=1e-2, lambda_reg=1e-8,
+        model_cls=UNet3D, model_kwargs={"base_channels": 4, "depth": 2},
+    )
+    assert velocity_field.shape == (1, *shape, 3) and torch.isfinite(velocity_field).all()
+    assert ((deformed_template - target) ** 2).mean() < 0.5 * ((template - target) ** 2).mean()
 
 
 def main():

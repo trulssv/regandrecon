@@ -22,7 +22,7 @@ from typing import Optional, Sequence, Tuple, overload
 # unmodified copy of the original function.
 def _fbp_filter_patched(norm_freq, filter_type, frequency_scaling):
     import numpy as np
-    from odl.core.discr.discr_utils import get_array_and_backend
+    from odl.core.array_API_support import get_array_and_backend
 
     filter_type_in = filter_type
     norm_freq, backend = get_array_and_backend(norm_freq)
@@ -365,43 +365,51 @@ class RayTransform:
             return [fbp(yi) for yi, fbp in zip(y, self.fbp_operator)]
         return self.fbp_operator(y)
 
-    def simulate_noise(
-            self, x: torch.Tensor | list[torch.Tensor], 
-            mu_water: float=0.0195, # in mm^-1 at 70 keV. See https://physics.nist.gov/PhysRefData/XrayMassCoef/ComTab/water.html for reference.
-            epsilon: float=1e-6  # Small constant to avoid division by zero or log of zero.
+    def add_poisson_noise(
+            self, y: torch.Tensor | list[torch.Tensor],
+            flux: float | None = None,  # Number of photons per view. Defaults to self.Flux.
+            epsilon: float = 1e-6       # Small constant to avoid division by zero or log of zero.
                        ) -> torch.Tensor | list[torch.Tensor]:
-
-
         """
-        Simulate noise in the input tensor. This achieved by transforming the input data x (HU) to attenuation coefficients. The data is then forward projected using the ray transform, and noise is added to the projections to simulate noisy measurments. 
-
-        Parameters
-        ----------
-        x : torch.Tensor | list[torch.Tensor]
-            The input image in Hounsfield units (HU). If a list of tensors is provided, noise will be simulated for each tensor individually.
-        mu_water : float, optional
-            The linear attenuation coefficient of water at the relevant X-ray energy (in mm^-1). Default is 0.0195 (at 70 keV).
-        Returns
-        -------
-        torch.Tensor | list[torch.Tensor]
-            The noisy projections after simulating CT Poisson noise.
+        Add CT Poisson noise to clean projections y, i.e. line integrals of attenuation values in mm^-1 as returned by self(x).
+        See `add_poisson_noise` (module level) for the noise model.
         """
-        
-        
-        x = (x / 1000.0 + 1.0) * mu_water if isinstance(x, torch.Tensor) else [(xi / 1000.0 + 1.0) * mu_water for xi in x]   # Convert HU to attenuation coefficients
-        projections = self(x)
+        n0 = photon_count(self.Flux if flux is None else flux, self.nViews, self.nDetectorCols, self.nDetectorRows)
+        return add_poisson_noise(y, n0=n0, epsilon=epsilon)
 
-        # Simulate Lambert-Beer law for X-ray attenuation
 
-        areafraction = 1 / (self.nDetectorCols * self.nDetectorRows) if isinstance(self.nDetectorCols, int) and isinstance(self.nDetectorRows, int) else 1 /self.nDetectorCols # Compute the area fraction of each detector element compared to the total detector area
-        N0 = self.Flux * areafraction / self.nViews # Initial number of photons per detector element per view
-        counts = N0 * torch.exp(-projections) if isinstance(projections, torch.Tensor) else [N0 * torch.exp(-pi) for pi in projections]
+def photon_count(flux: float, nViews: int, nDetectorCols: int, nDetectorRows: int | None = None) -> float:
+    """Initial number of photons N0 per detector element per view, given the total flux per view spread evenly over the detector."""
+    n_detector_elements = nDetectorCols * (nDetectorRows if nDetectorRows is not None else 1)
+    return flux / (n_detector_elements * nViews)
 
-        noisy_counts = torch.poisson(counts) if isinstance(counts, torch.Tensor) else [torch.poisson(ci) for ci in counts]
 
-        noisy_projections = -torch.log((noisy_counts + epsilon) / N0) if isinstance(noisy_counts, torch.Tensor) else [-torch.log((nc + epsilon) / N0) for nc in noisy_counts]
+@overload
+def add_poisson_noise(y: torch.Tensor, n0: float, epsilon: float = 1e-6) -> torch.Tensor: ...
 
-        return noisy_projections
+@overload
+def add_poisson_noise(y: list[torch.Tensor], n0: float, epsilon: float = 1e-6) -> list[torch.Tensor]: ...
 
-      
- 
+def add_poisson_noise(y, n0: float, epsilon: float = 1e-6) -> torch.Tensor | list[torch.Tensor]:
+    """
+    Simulate noisy measurements from clean projections y (line integrals of attenuation values in mm^-1).
+    Following the Lambert-Beer law, the expected photon counts are N0 * exp(-y). These are Poisson sampled and log-transformed back to line integrals.
+
+    Parameters
+    ----------
+    y : torch.Tensor | list[torch.Tensor]
+        The clean projections. If a list of tensors is provided, noise is added to each tensor individually.
+    n0 : float
+        The initial number of photons per detector element per view, see `photon_count`.
+    epsilon : float, optional
+        Small constant to avoid the log of zero for detector elements without counts.
+    Returns
+    -------
+    torch.Tensor | list[torch.Tensor]
+        The noisy projections.
+    """
+    if isinstance(y, list):
+        return [add_poisson_noise(yi, n0=n0, epsilon=epsilon) for yi in y]
+
+    noisy_counts = torch.poisson(n0 * torch.exp(-y))
+    return -torch.log((noisy_counts + epsilon) / n0)

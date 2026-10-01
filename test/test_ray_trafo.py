@@ -19,18 +19,18 @@ Per case, this checks:
     (limited-angle FBP is a known ill-posed problem -- streak/incompleteness artifacts are expected,
     not a bug) -- only that it runs and produces finite output.
 
-Run directly: python test/test_ray_trafo.py
+Run with pytest (one test per case), or directly for a summary table: python test/test_ray_trafo.py
 """
 import sys
 import traceback
-from pathlib import Path
 
+import pytest
 import torch
 import numpy as np
 
 from operators.tomo.ray_trafo import RayTransform
 
-REAL_DATA_ROOT = Path("/media/trulssv/LDDMM")
+from data.config import DEFAULT_SIMULATED_ROOT as REAL_DATA_ROOT
 
 
 # ---------------------------------------------------------------------------
@@ -61,18 +61,13 @@ def load_real_patient_volume(quality="high", mode="test"):
     if not REAL_DATA_ROOT.exists():
         return None
     try:
-        from data.data_loaders import RegAndReconDataset
-        dataset = RegAndReconDataset(qualities=[quality], mode=mode, data_root=REAL_DATA_ROOT)
+        from data.loaders import RegAndReconDataset
+        dataset = RegAndReconDataset(qualities=[quality], mode=mode, data_root=REAL_DATA_ROOT, load_volume=True)
         if len(dataset) == 0:
             return None
         sample = dataset[0]
-        volume = sample["volume_processed"].float()  # (T, D, H, W)
-        meta_data = sample["meta_data"]
-
-        d, h, w = volume.shape[1:]
-        pixel_spacing = meta_data["resampled_pixel_spacing"]  # (W spacing, H spacing), mm
-        slice_thickness = meta_data["resampled_slice_thickness"]  # mm
-        extent = (d * slice_thickness, h * pixel_spacing[1], w * pixel_spacing[0])  # (D,H,W) extent, mm
+        volume = sample["volume"].float()  # (T, D, H, W)
+        extent = sample["meta"]["extent"]  # (D,H,W) extent, mm
         return volume, tuple(extent)
     except Exception:
         traceback.print_exc()
@@ -328,6 +323,22 @@ def run_coupling_demo():
     ok = all_finite and shapes_ok
     print(f"Coupling demo: {'PASS' if ok else 'FAIL'} (all finite: {all_finite}, adjoint shapes match frames: {shapes_ok})")
     return ok
+
+
+# ---------------------------------------------------------------------------
+# pytest entry points
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("case", build_cases(), ids=lambda case: case[0])
+def test_ray_transform_case(case):
+    if case[1] is None:
+        pytest.skip(f"{REAL_DATA_ROOT} not available in this environment")
+    result = run_case(*case)
+    assert result["status"] == "PASS", result
+
+
+def test_coupling_with_flow_deformation():
+    assert run_coupling_demo()
 
 
 def format_shape(s):

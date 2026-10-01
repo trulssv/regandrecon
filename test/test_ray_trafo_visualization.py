@@ -14,7 +14,7 @@ comparable -- only the geometry-defining parameters actually differ per case:
   (B) Helical cone-beam: same as (A) but pitch=50.
   (C) Parallel3dAxisGeometry (no source/detector radius, no curvature, no pitch -- parallel geometries
       don't take them).
-  (D) Same as (C), through RayTransform.simulate_noise() instead of the clean forward projection.
+  (D) Same as (C), with Poisson noise added by RayTransform.add_poisson_noise().
   (E) Cone-beam nominally with a spherical detector (see FORCED-FLAT note below).
 
 FORCED-FLAT NOTE: (A)/(B) nominally use DEFAULT_CONFIG's cylindrical detector
@@ -46,7 +46,7 @@ from matplotlib.animation import FuncAnimation, PillowWriter
 from operators.tomo.ray_trafo import RayTransform, DEFAULT_CONFIG
 
 PLOT_DIR = Path("test/plots/ray_trafo")
-REAL_DATA_ROOT = Path("/media/trulssv/LDDMM")
+from data.config import DEFAULT_SIMULATED_ROOT as REAL_DATA_ROOT
 
 # Parameters shared by every case in this file, taken directly from DEFAULT_CONFIG so all five
 # outputs are comparable. rotAxis is added on top since DEFAULT_CONFIG (in ray_trafo.py) doesn't
@@ -70,23 +70,20 @@ def load_real_patient_frame(quality="high", mode="test"):
     """
     if not REAL_DATA_ROOT.exists():
         return None
-    from data.data_loaders import RegAndReconDataset
+    from data.loaders import RegAndReconDataset
 
-    dataset = RegAndReconDataset(qualities=[quality], mode=mode, data_root=REAL_DATA_ROOT)
+    dataset = RegAndReconDataset(qualities=[quality], mode=mode, data_root=REAL_DATA_ROOT, load_volume=True)
     if len(dataset) == 0:
         return None
     sample = dataset[0]
-    volume = sample["volume_processed"].float()  # (T, D, H, W)
-    meta_data = sample["meta_data"]
+    volume = sample["volume"].float()  # (T, D, H, W)
     frame = volume[0]  # (D, H, W), first respiratory phase
 
     d, h, w = frame.shape
     step_h, step_w = max(h // 96, 1), max(w // 96, 1)
     frame_small = frame[:, ::step_h, ::step_w]
 
-    pixel_spacing = meta_data["resampled_pixel_spacing"]
-    slice_thickness = meta_data["resampled_slice_thickness"]
-    extent = (d * slice_thickness, h * pixel_spacing[1], w * pixel_spacing[0])  # unchanged by subsampling
+    extent = sample["meta"]["extent"]  # unchanged by subsampling
     return frame_small, tuple(extent)
 
 
@@ -125,17 +122,14 @@ def plot_row_sweep_gif(sino: torch.Tensor, savepath: Path, title: str, fps: int 
 
 def build_cases():
     """Returns [(name, build_rt_fn, apply_fn)]. apply_fn(rt, x) -> projection tensor to visualize --
-    identical to rt(x) for every case except (D), which routes through simulate_noise instead.
+    identical to rt(x) for every case except (D), which adds Poisson noise via add_poisson_noise.
     """
     def clean_forward(rt, x):
         return rt(x)
 
     def noisy_forward(rt, x):
-        # simulate_noise expects roughly-HU-scaled input (see its docstring: (x/1000+1)*mu_water); the
-        # real volume here is a normalized attenuation-like map in ~[0,4], not HU, so it's rescaled to
-        # a plausible soft-tissue HU range purely for this demo's noise visualization.
-        x_hu = (x - x.mean()) * 500.0
-        return rt.simulate_noise(x_hu)
+        # The pipeline's volumes are attenuation values in mm^-1, so the clean projections are noised directly.
+        return rt.add_poisson_noise(rt(x))
 
     # det_curvature_radius is forced to None (flat) for every case below that would otherwise want
     # curvature -- see the FORCED-FLAT NOTE in the module docstring for why (no available backend can

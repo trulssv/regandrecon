@@ -5,8 +5,13 @@ from matplotlib.image import AxesImage
 from matplotlib.text import Text
 from matplotlib.axes import Axes
 
+from typing import List
+
 class StaticVisualization:
-    """This is a generic class for static visualization of a 4D volume (B, T, D, H, W), where """
+    """
+    This is a generic class for visualizating 4D spatiotemporal volumes on the format list[torch.Tensor, ...] where each tensor has 
+    the shape (B, D, H, W) or (B, D, H, W, C) for RGB channels.
+    """
 
     def __init__(self, meta_data: dict, batch_idx: int = 0, vmin: float|None =None, vmax: float|None =None)->None:
 
@@ -17,18 +22,19 @@ class StaticVisualization:
         self.vmax = vmax
 
             
-    def _init_shape(self, sz: torch.Size)->None:
+    def _init_shape(self, x: list[torch.Tensor])->None:
         """This function initializes the shape of the input tensor and checks that it has the expected dimensions. It also calculates the slice indices for the middle slices in each plane (axial, coronal, sagittal) for visualization purposes."""
-        self.sz = sz
+        self.sz = x[0].shape
+        self.time_bins = len(x)
 
-        assert len(self.sz) in (5, 6), f"Expected input tensor to have 5 or 6 dimensions (B, T, D, H, W), but got {len(self.sz)} dimensions."
+        assert len(self.sz) in (4, 5 ), f"Expected input tensor to have 3 or 4 dimensions (B, D, H, W) or (B, D, H, W, C) for RGB channels, but got {len(self.sz)} dimensions."
 
-        if len(self.sz) == 6:
-            b, t, d, h, w, c = self.sz
+        if len(self.sz) == 5:
+            b, d, h, w, c = self.sz
             assert c == 3, f"Expected input tensor to have 3 channels for RGB, but got {c} channels."
 
         else:
-            b, t, d, h, w = self.sz
+            b, d, h, w = self.sz
             c = None
 
 
@@ -39,7 +45,6 @@ class StaticVisualization:
 
 
         self.d , self.h , self.w = d, h, w
-        self.time_bins = t
         self.has_channels = c is not None
 
         self._get_geometry()
@@ -59,12 +64,12 @@ class StaticVisualization:
         self.Z: float = self.d * slice_thickness
 
 
-    def _extract_volume(self, x: torch.Tensor, time_bin: int)->torch.Tensor:
-        volume = x[self.batch_idx, time_bin]
+    def _extract_volume(self, x: list[torch.Tensor], time_bin: int)->torch.Tensor:
+        volume = x[time_bin][self.batch_idx]
         return volume
 
 
-    def _extract_slice(self, x: torch.Tensor, plane:str="axial", slice_idx:int|None =None, time_bin:int=0)->torch.Tensor:
+    def _extract_slice(self, x: list[torch.Tensor], plane:str="axial", slice_idx:int|None =None, time_bin:int=0)->torch.Tensor:
         
         def _extent(plane: str)->list[float]:
             if plane == "axial":
@@ -99,7 +104,7 @@ class StaticVisualization:
   
 
 
-    def visualize_plane(self, x:torch.Tensor, ax: Axes, plane:str="axial", slice_idx:int|None=None, time_bin: int=0, prefix:str = "", save: bool = False)->tuple[AxesImage, Text]:
+    def visualize_plane(self, x:list[torch.Tensor], ax: Axes, plane:str="axial", slice_idx:int|None=None, time_bin: int=0, prefix:str = "", save: bool = False)->tuple[AxesImage, Text]:
         
 
 
@@ -121,7 +126,7 @@ class StaticVisualization:
         
 
 
-    def plot_plane_rgb(self, x: torch.Tensor, ax: Axes, plane="axial", slice_idx=None, time_bin=None, prefix:str = "")->tuple[AxesImage, Text]:
+    def plot_plane_rgb(self, s: torch.Tensor, ax: Axes, plane="axial", slice_idx: int | None=None, time_bin:int|None=None, prefix:str = "")->tuple[AxesImage, Text]:
         """This function plots a 2D slice with 3 channels (C, H, W) as an RGB image."""
 
 
@@ -129,25 +134,25 @@ class StaticVisualization:
             print("No axis provided for plotting. Creating a new figure and axis.")
             fig, ax = plt.subplots(figsize=(6, 6))
 
-        assert x.dim() == 3, f"Expected input tensor to have 3 dimensions (C, H, W), but got {x.dim()} dimensions."
+        assert s.dim() == 3, f"Expected input tensor to have 3 dimensions (C, H, W), but got {s.dim()} dimensions."
 
         if slice_idx is None:
             slice_idx = self.slice_indices[{"axial": 0, "coronal": 1, "sagittal": 2}[plane]]
 
-        im = ax.imshow(x)
+        im = ax.imshow(s)
         ax.axis("off")
 
         title = ax.set_title(f"{prefix} Plane {plane}, Slice {slice_idx}, Time Bin {time_bin}")
         return im, title
 
-    def plot_plane_grayscale(self, x: torch.Tensor, ax: Axes, plane="axial", slice_idx=None, time_bin=None, prefix:str = "")->tuple[AxesImage, Text]:
+    def plot_plane_grayscale(self, s: torch.Tensor, ax: Axes, plane: str="axial", slice_idx: int | None=None, time_bin:int|None=None, prefix:str = "")->tuple[AxesImage, Text]:
         """This function plots a 2D slice with 1 channel (H, W) as a grayscale image."""
 
         if ax is None:
             print("No axis provided for plotting. Creating a new figure and axis.")
             fig, ax = plt.subplots(figsize=(6, 6))
 
-        assert x.dim() == 2, f"Expected input tensor to have 2 dimensions (H, W), but got {x.dim()} dimensions."
+        assert s.dim() == 2, f"Expected input tensor to have 2 dimensions (H, W), but got {s.dim()} dimensions."
 
         if slice_idx is None:
             slice_idx = self.slice_indices[{"axial": 0, "coronal": 1, "sagittal": 2}[plane]]
@@ -158,14 +163,14 @@ class StaticVisualization:
 
         extent = [self.Z, self.Y, self.X]
         del extent[{"axial": 0, "coronal": 1, "sagittal": 2}[plane]] 
-        extent = [0, float(extent[0]), 0, float(extent[1])]
+        extent = (0.0, float(extent[0]), 0.0, float(extent[1]))
         
         assert len(extent) == 4, f"Expected extent to have 4 elements for 2D visualization, but got {len(extent)} elements." 
 
 
         # Plot the slice with correct aspect ratio and physical dimensions
 
-        im = ax.imshow(x, cmap="gray", vmin=self.vmin, vmax=self.vmax, aspect='equal', origin='lower', extent=extent) # type ignore
+        im = ax.imshow(s, cmap="gray", vmin=self.vmin, vmax=self.vmax, aspect='equal', origin='lower', extent=extent) # type ignore
         # plt.colorbar()  # Add a colorbar to show the intensity scale
         ax.axis("off")
         title = ax.set_title(f"{prefix} Plane {plane}, Slice {slice_idx}, Time Bin {time_bin}")
