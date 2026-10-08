@@ -6,7 +6,7 @@ from odl.applications.tomo.analytic import filtered_back_projection as _fbp_modu
 import torch
 import torch.nn.functional as F
 
-from typing import Optional, Sequence, Tuple, overload
+from typing import Optional, Sequence, Tuple, List, overload
 
 
 # NOTE: the installed odl version's `_fbp_filter` (odl/applications/tomo/analytic/filtered_back_projection.py)
@@ -98,16 +98,16 @@ class RayTransform:
         # Required for 3D geometries
         nDetectorRows: int | None,                                                          # Number of detector rows. None for 2D geometries
         DetectorRowExtent: float | None,                                                    # Physical extent for the detector rows. None for 2D geometries
-        rotAxis: Tuple[float, float, float] | None,                                         # Axis of rotation in 3D space
+        rotAxis: Tuple[float, ...] | None,                                                  # Axis of rotation in 3D space
         # Required for non-parallel geometries
         source_radius: float | None,                                                        # Distance from the source to the rotation axis
         det_radius: float | None,                                                           # Distance from the detector to the rotation axis
         # Object geometry parameters
-        extent: Tuple[float, float, float] | Tuple[float, float] | None,                    # Extent of the object in 3D space
-        shape: Tuple[int, int, int] | Tuple[int, int] | None,                               # Shape of the object in 3D space
+        extent: Tuple[float, ...] | None,                                                   # Extent of the object in 3D space
+        shape: Tuple[int, ...] | None,                                                      # Shape of the object in 3D space
         
         # Optional detector parameters
-        det_curvature_radius: Tuple[float, float] |Tuple[float] | None=None,                # Curvature radius of the detector. Only applicable to the non-parallel detectors. For 2D, it is Tuple[float] and for 3D cylindrical detectors, it is Tuple[float, float].
+        det_curvature_radius: Tuple[float, ...] | None=None,                                # Curvature radius of the detector. Only applicable to the non-parallel detectors. For 2D, it is Tuple[float] and for 3D cylindrical detectors, it is Tuple[float, float].
         pitch: float =0.0,                                                                  # Pitch of the helical trajectory
         # Implementation
         impl='astra_cuda',
@@ -208,6 +208,21 @@ class RayTransform:
             dtype='float32',
         )
         return self.reco_space
+
+    def _set_time_bin(self, time_bin: int) -> None:
+        """Initializes or overwrites the self.bin_ray_trafo for the given time bin.
+
+        Parameters
+        ----------
+        time_bin : int
+            The time bin index for which to initialize or overwrite the ray transform.
+        """
+
+        assert hasattr(self, 'ray_transform') and isinstance(self.ray_transform, list), f"A time dependent ray transform must be initialized before setting the time bin."
+        assert hasattr(self, 'ray_transform_adjoint') and isinstance(self.ray_transform_adjoint, list), f"A time dependent ray transform adjoint must be initialized before setting the time bin."
+        assert hasattr(self, 'fbp_operator') and isinstance(self.fbp_operator, list), f"A time dependent FBP operator must be initialized before setting the time bin."
+
+        self.time_bin = time_bin
 
 
     @overload
@@ -336,11 +351,20 @@ class RayTransform:
     def __call__(self, x: list[torch.Tensor]) -> list[torch.Tensor]: ...
 
     def __call__(self, x) -> torch.Tensor | list[torch.Tensor]:
-        if isinstance(self.ray_transform, list):
-            assert isinstance(x, list) and len(x) == len(self.ray_transform), "Input must be a list of tensors when the ray transform is a list."
+        if isinstance(x, list):
+            assert isinstance(self.ray_transform, list) and len(x) == len(self.ray_transform), "Input must be a list of tensors when the ray transform is a list."
+            assert not hasattr(self, 'time_bin'), "Time bin specific ray transform should not be set when input is a list."
             return [rt(xi) for xi, rt in zip(x, self.ray_transform)]
-        return self.ray_transform(x)
+        elif isinstance(x, torch.Tensor) and hasattr(self, 'time_bin'):
+                assert isinstance(self.ray_transform, list), "Time bin specific ray transform should be set when input is a torch.Tensor and time_bin is specified."
+                return self.ray_transform[self.time_bin](x)
+        elif isinstance(x, torch.Tensor) and isinstance(self.ray_transform, OperatorModule):
+            return self.ray_transform(x)
+        else:
+            raise ValueError("Input must be a list of tensors or a torch.Tensor compatible with the ray transform.")
 
+
+        
     @overload
     def adjoint(self, y: torch.Tensor) -> torch.Tensor: ...
 
@@ -348,10 +372,19 @@ class RayTransform:
     def adjoint(self, y: list[torch.Tensor]) -> list[torch.Tensor]: ...
 
     def adjoint(self, y) -> torch.Tensor | list[torch.Tensor]:
-        if isinstance(self.ray_transform_adjoint, list):
-            assert isinstance(y, list) and len(y) == len(self.ray_transform_adjoint), "Input must be a list of tensors when the ray transform adjoint is a list."
+        if isinstance(y, list):
+            assert isinstance(self.ray_transform_adjoint, list) and len(y) == len(self.ray_transform_adjoint), "Input must be a list of tensors when the ray transform adjoint is a list."
             return [rt_adj(yi) for yi, rt_adj in zip(y, self.ray_transform_adjoint)]
-        return self.ray_transform_adjoint(y)
+        elif isinstance(y, torch.Tensor) and hasattr(self, 'time_bin'):
+            assert isinstance(self.ray_transform_adjoint, list), "Time bin specific ray transform adjoint should be set when input is a torch.Tensor and time_bin is specified."
+            return self.ray_transform_adjoint[self.time_bin](y)
+        elif isinstance(y, torch.Tensor) and isinstance(self.ray_transform_adjoint, OperatorModule):
+            return self.ray_transform_adjoint(y)
+        else:
+            raise ValueError("Input must be a list of tensors or a torch.Tensor compatible with the ray transform adjoint.")
+    
+
+        
 
     @overload
     def FBP(self, y: torch.Tensor) -> torch.Tensor: ...
@@ -360,10 +393,22 @@ class RayTransform:
     def FBP(self, y: list[torch.Tensor]) -> list[torch.Tensor]: ...
 
     def FBP(self, y) -> torch.Tensor | list[torch.Tensor]:
-        if isinstance(self.fbp_operator, list):
-            assert isinstance(y, list) and len(y) == len(self.fbp_operator), "Input must be a list of tensors when the FBP operator is a list."
+        if isinstance(y, list):
+            assert isinstance(self.fbp_operator, list) and len(y) == len(self.fbp_operator), "Input must be a list of tensors when the FBP operator is a list."
             return [fbp(yi) for yi, fbp in zip(y, self.fbp_operator)]
-        return self.fbp_operator(y)
+        elif isinstance(y, torch.Tensor) and hasattr(self, 'time_bin'):
+            assert isinstance(self.fbp_operator, list), "Time bin specific FBP operator should be set when input is a torch.Tensor and time_bin is specified."
+            return self.fbp_operator[self.time_bin](y)
+        elif isinstance(y, torch.Tensor) and isinstance(self.fbp_operator, OperatorModule):
+            return self.fbp_operator(y)
+        else:
+            raise ValueError("Input must be a list of tensors or a torch.Tensor compatible with the FBP operator.")
+
+    @overload
+    def add_poisson_noise(self, y: torch.Tensor, flux: float | None = None, epsilon: float = 1e-6) -> torch.Tensor: ...
+
+    @overload
+    def add_poisson_noise(self, y: list[torch.Tensor], flux: float | None = None, epsilon: float = 1e-6) -> list[torch.Tensor]: ...
 
     def add_poisson_noise(
             self, y: torch.Tensor | list[torch.Tensor],

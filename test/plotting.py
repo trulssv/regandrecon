@@ -81,17 +81,19 @@ def plot_registration_summary_3d(
     }
     planes = ["axial", "coronal", "sagittal"]
 
+    # StaticVisualization takes a list over time bins of (B, D, H, W) tensors; each volume here is a single time bin.
+    volumes = {name: [_to_4d(vol.detach().cpu())] for name, vol in volumes.items()}
+
     viz = StaticVisualization(meta_data=meta_data, batch_idx=0)
     # All volumes share the same spatial shape, so a single call to _init_shape sets up the geometry
     # (slice indices, physical extent) shared by every plot below.
-    viz._init_shape(torch.Size((1, 1, *template.shape[1:])))
+    viz._init_shape(volumes["Template"])
 
     fig, ax = plt.subplots(len(volumes), len(planes), figsize=(4 * len(planes), 4 * len(volumes)))
 
     for row, (name, vol) in enumerate(volumes.items()):
-        vol_5d = vol.detach().cpu().unsqueeze(1)  # (B, 1, D, H, W): add a singleton time-bin axis
         for col, plane in enumerate(planes):
-            im, title = viz.visualize_plane(vol_5d, ax[row, col], plane=plane, time_bin=0, prefix=name)
+            im, title = viz.visualize_plane(vol, ax[row, col], plane=plane, time_bin=0, prefix=name)
             title.set_fontsize(8)
             if name == "Velocity Magnitude":
                 fig.colorbar(im, ax=ax[row, col], fraction=0.046, pad=0.04)
@@ -160,16 +162,16 @@ def plot_deformation_sequence_gif(
     return savepath
 
 
-def _to_5d_single_timebin(img: torch.Tensor) -> torch.Tensor:
-    """Normalize a single deformation-sequence frame to (B, 1, D, H, W) so it can be sliced with
-    StaticVisualization, regardless of whether it already carries a channel/time-bin axis: template
-    frames from get_3d_target_and_template_from_dataset are (B, D, H, W), while frames produced by
-    FlowDeformationOperator (which inserts a channel dim before grid_sample) are (B, 1, D, H, W)."""
+def _to_4d(img: torch.Tensor) -> torch.Tensor:
+    """Normalize a 3D volume to (B, D, H, W), the per-time-bin shape StaticVisualization expects, regardless of
+    whether it carries a channel axis: template frames from get_3d_target_and_template_from_dataset are
+    (B, D, H, W), while superres frames produced by FlowDeformationOperator (which inserts a channel dim before
+    grid_sample) are (B, 1, D, H, W)."""
 
     if img.dim() == 4:
-        return img.unsqueeze(1)
-    elif img.dim() == 5:
         return img
+    elif img.dim() == 5 and img.shape[1] == 1:
+        return img.squeeze(1)
     else:
         raise ValueError(f"Expected a 4D (B, D, H, W) or 5D (B, 1, D, H, W) tensor, but got shape {tuple(img.shape)}.")
 
@@ -200,14 +202,15 @@ def plot_deformation_sequence_gif_3d(
 
     planes = ["axial", "coronal", "sagittal"]
 
-    frames_5d = [_to_5d_single_timebin(img[:1].detach().cpu()) for img in image_sequence]
+    # Each integration step is treated as a time bin of StaticVisualization's list-over-time format.
+    frames = [_to_4d(img[:1].detach().cpu()) for img in image_sequence]
 
     viz = StaticVisualization(meta_data=meta_data, batch_idx=0)
-    viz._init_shape(frames_5d[0].shape)
+    viz._init_shape(frames)
 
     slices_per_frame = [
-        [viz._extract_slice(frame, plane=plane, time_bin=0).numpy() for plane in planes]
-        for frame in frames_5d
+        [viz._extract_slice(frames, plane=plane, time_bin=t).numpy() for plane in planes]
+        for t in range(len(frames))
     ]
 
     if vmin is None:
@@ -222,15 +225,15 @@ def plot_deformation_sequence_gif_3d(
         axes[col].set_title(plane.capitalize(), fontsize=10)
         axes[col].axis('off')
         ims.append(im)
-    suptitle = fig.suptitle(f"Deformation Sequence (frame 1/{len(frames_5d)})", fontsize=11)
+    suptitle = fig.suptitle(f"Deformation Sequence (frame 1/{len(frames)})", fontsize=11)
 
     def update(i):
         for col, im in enumerate(ims):
             im.set_data(slices_per_frame[i][col])
-        suptitle.set_text(f"Deformation Sequence (frame {i + 1}/{len(frames_5d)})")
+        suptitle.set_text(f"Deformation Sequence (frame {i + 1}/{len(frames)})")
         return ims + [suptitle]
 
-    anim = FuncAnimation(fig, update, frames=len(frames_5d), interval=1000 / fps, blit=False)
+    anim = FuncAnimation(fig, update, frames=len(frames), interval=1000 / fps, blit=False)
 
     savepath = Path(savepath)
     os.makedirs(savepath.parent, exist_ok=True)

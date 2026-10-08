@@ -7,8 +7,6 @@
     "HU_RANGE": [-1024, 3072],
     "mu_wa_mm": 0.019,
     "mu_air_mm": 2.3e-5,
-    "pixel_spacing_mm": [2.1054, 2.1054],
-    "slice_thickness_mm": 6.18,
     
 
     "train_val_test_split": {

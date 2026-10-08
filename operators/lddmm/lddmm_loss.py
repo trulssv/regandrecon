@@ -62,7 +62,12 @@ class LDDMMloss(torch.nn.Module):
             ), x_deformed_list
 
 
-        x_deformed = self.flow_deform_op(x, v)[-1] # The flow-deformation operator returns [x_init, x_deformed] when v is static (a tensor)
+        # For a static v the flow-deformation operator returns the deformed image as a single (B, 1, ...) tensor, and only a list
+        # of intermediate images when superres is set. Indexing the tensor with [-1] would select the last batch element instead.
+        x_deformed = self.flow_deform_op(x, v)
+        if isinstance(x_deformed, list):
+            x_deformed = x_deformed[-1]
+        x_deformed = x_deformed.reshape(y.shape)  # Drop the channel dim the operator inserts, so that the mse does not broadcast.
         data_loss = mse_loss(x_deformed, y, reduction='mean')
         regularization_loss = torch.mean(self.helmholtz_op(v).square())
         total_loss = data_loss + self.lambda_reg * regularization_loss

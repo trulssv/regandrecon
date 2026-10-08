@@ -5,7 +5,7 @@ from operators.lddmm.lddmm_loss import LDDMMloss
 from tqdm import tqdm
 
 from test.models import RegistrationCNN, UNet, RegistrationCNN3D, UNet3D
-from test.visualization import plot_deformation_sequence_gif_3d, plot_registration_summary_3d, plot_deformed_grid, plot_deformation_sequence_gif, plot_registration_summary
+from test.plotting import plot_deformation_sequence_gif_3d, plot_registration_summary_3d, plot_deformed_grid, plot_deformation_sequence_gif, plot_registration_summary
 
 from data.loaders import RegAndReconDataset
 
@@ -18,10 +18,10 @@ HELMHOLTZ_PARAMS: dict = {
     "return_fft": False,
 }
 DEFORM_PARAMS: dict = {
-     "N": 7,  # Default number of integration steps for the velocity field
+    "N": 7,  # Default number of integration steps for the velocity field
     "extent": (450.0, 450.0),
     "action": "geometric",
-    "integration": "euler",
+    "integration": "euler", # scaling_or_squaring or euler
 }
 
 # 3D counterparts of HELMHOLTZ_PARAMS/DEFORM_PARAMS above. `extent` is deliberately omitted here since,
@@ -62,10 +62,10 @@ def get_target_and_template(device: torch.device, shape=(128, 128)):
 
         return template, target
 
-def get_target_and_template_from_dataset(idx: int| None = None, time_bins: tuple[int, int] = (0, 4), device: torch.device=torch.device("cpu")):
+def get_target_and_template_from_dataset(idx: int| None = None, time_bins: tuple[int, int] = (0, 4), device: torch.device=torch.device("cpu"), mode: str = "test"):
     """2D counterpart of get_3d_target_and_template_from_dataset: the central axial slices (1, H, W) of two time bins of the same study."""
 
-    template, target, _ = get_3d_target_and_template_from_dataset(idx=idx, time_bins=time_bins, device=device)
+    template, target, _ = get_3d_target_and_template_from_dataset(idx=idx, time_bins=time_bins, device=device, mode=mode)
     d = template.shape[1]
     return template[:, d // 2], target[:, d // 2]
 
@@ -74,13 +74,16 @@ def get_3d_target_and_template_from_dataset(
     idx: int | None = None,
     time_bins: tuple[int, int] = (0, 4),
     device: torch.device = torch.device("cpu"),
+    mode: str = "test",
 ):
     """Extract two 3D volumes (D, H, W) from the same 4D spatio-temporal (T, D, H, W) study, using the
     given pair of time bins (default: the 1st and 5th, i.e. indices 0 and 4) as template and target for
     the 3D diffeomorphic registration pipeline. Also returns the study's meta_data, which the 3D pipeline
     needs to compute a physically correct extent for the Helmholtz regularizer/deformation operator."""
 
-    dataset = RegAndReconDataset(qualities=["high"], mode="val", load_volume=True)
+    dataset = RegAndReconDataset(qualities=["high"], mode=mode, load_volume=True)
+    if len(dataset) == 0:
+        raise RuntimeError(f"No finished '{mode}' studies of quality 'high' under {dataset.data_root}. Run the data pipeline for this split or choose another mode.")
     if idx is None:
         idx = 0
 
@@ -93,6 +96,33 @@ def get_3d_target_and_template_from_dataset(
     meta_data = data["meta"]
 
     return template, target, meta_data
+
+
+def get_3d_template_and_targets_from_dataset(
+    idx: int | None = None,
+    template_bin: int = 0,
+    device: torch.device = torch.device("cpu"),
+    mode: str = "test",
+):
+    """Multi-target counterpart of get_3d_target_and_template_from_dataset: uses one time bin of a 4D (T, D, H, W) study
+    as template (1, D, H, W) and stacks all remaining T-1 time bins along the batch axis as targets (T-1, D, H, W), so that
+    a single network can be trained to register the template to every other time bin at once. Also returns the indices of
+    the target time bins and the study's meta_data."""
+
+    dataset = RegAndReconDataset(qualities=["high"], mode=mode, load_volume=True)
+    if len(dataset) == 0:
+        raise RuntimeError(f"No finished '{mode}' studies of quality 'high' under {dataset.data_root}. Run the data pipeline for this split or choose another mode.")
+    if idx is None:
+        idx = 0
+
+    data = dataset[idx]
+
+    volume = data["volume"]  # (T, D, H, W)
+    target_bins = [t for t in range(volume.shape[0]) if t != template_bin]
+    template = volume[template_bin].unsqueeze(0).to(device)  # (1, D, H, W)
+    targets = volume[target_bins].to(device)  # (T-1, D, H, W)
+
+    return template, targets, target_bins, data["meta"]
 
 
 def compute_3d_extent(
@@ -263,6 +293,29 @@ def test_registration_3d_reduces_mismatch():
     assert ((deformed_template - target) ** 2).mean() < 0.5 * ((template - target) ** 2).mean()
 
 
+def test_registration_3d_batched_targets():
+    """One network registering a shared template to several targets at once (as in main_3d_all_bins) must reduce the
+    mismatch for every target separately, not only for the last element of the batch."""
+    torch.manual_seed(0)
+    shape = (12, 16, 16)
+    Z, Y, X = torch.meshgrid(*[torch.arange(n) for n in shape], indexing="ij")
+    template = (((Z - 6) / 4) ** 2 + ((Y - 8) / 5) ** 2 + ((X - 8) / 5) ** 2 <= 1).float().unsqueeze(0)  # ellipsoid
+    targets = torch.zeros(2, *shape)
+    targets[0, 3:9, 3:13, 3:13] = 1.0  # box
+    targets[1] = (((Z - 6) / 3) ** 2 + ((Y - 8) / 6) ** 2 + ((X - 8) / 4) ** 2 <= 1).float()  # differently shaped ellipsoid
+    meta_data = {"resampled_pixel_spacing": [2.0, 2.0], "resampled_slice_thickness": 3.0}
+
+    templates = template.expand_as(targets)
+    velocity_field, deformed_template, _ = diffeomorphic_registration_3d(
+        templates, targets, meta_data, num_epochs=100, learning_rate=1e-2, lambda_reg=1e-8,
+        model_cls=UNet3D, model_kwargs={"base_channels": 4, "depth": 2},
+    )
+    assert velocity_field.shape == (2, *shape, 3) and deformed_template.shape == targets.shape
+    mse_before = ((templates - targets) ** 2).mean(dim=(1, 2, 3))
+    mse_after = ((deformed_template - targets) ** 2).mean(dim=(1, 2, 3))
+    assert (mse_after < 0.5 * mse_before).all(), f"Per-target mse before {mse_before.tolist()}, after {mse_after.tolist()}"
+
+
 def main():
     # Generate the target and template images
     device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -280,7 +333,7 @@ def main():
     # so it copes better at higher resolutions. Swap model_cls/model_kwargs below to try either.
     velocity_field, deformed_template = diffeomorphic_registration(
         template, target,
-        num_epochs=1000, learning_rate=1e-2, lambda_reg=1e-8, device=device,
+        num_epochs=1000, learning_rate=1e-3, lambda_reg=1e-8, device=device,
         model_cls=UNet, model_kwargs={"base_channels": 32, "depth": 4},
     )
 
@@ -317,7 +370,7 @@ def main_3d():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
-    template, target, meta_data = get_3d_target_and_template_from_dataset(idx=None, time_bins=(0, 4), device=device)
+    template, target, meta_data = get_3d_target_and_template_from_dataset(idx=5, time_bins=(0, 4), device=device)
 
     # base_channels/depth are kept modest relative to the 2D UNet default (32/4) since a full-resolution
     # (D, H, W) volume is far more memory-hungry per channel than a 2D slice; increase if GPU memory allows.
@@ -339,11 +392,57 @@ def main_3d():
     plot_deformed_grid(phi)
 
 
+def main_3d_all_bins(idx: int = 5, template_bin: int = 0):
+    """Registers one time bin of a real 4D study to all other time bins with a single 3D velocity-estimation network. The
+    targets are stacked along the batch axis, so the network is still overfitted to one study, but has to produce a
+    velocity field for every time bin. Each time bin gets its own summary figure."""
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
+
+    template, targets, target_bins, meta_data = get_3d_template_and_targets_from_dataset(idx=idx, template_bin=template_bin, device=device)
+    templates = template.expand_as(targets)  # (T-1, D, H, W): the same template for every target
+
+    # ~4 GB of GPU memory per target for this network at 50x256x256, i.e. ~37 GB for 9 targets.
+    velocity_field, deformed_template, flow_deform_op = diffeomorphic_registration_3d(
+        templates, targets, meta_data,
+        num_epochs=200, learning_rate=1e-2, lambda_reg=1e-8, device=device,
+        model_cls=UNet3D, model_kwargs={"base_channels": 16, "depth": 3},
+    )
+
+    with torch.no_grad():
+        mse_before = ((templates - targets) ** 2).mean(dim=(1, 2, 3))
+        mse_after = ((deformed_template - targets) ** 2).mean(dim=(1, 2, 3))
+    print(f"{'bin':>4} {'mse before':>12} {'mse after':>12}")
+    for t, before, after in zip(target_bins, mse_before.tolist(), mse_after.tolist()):
+        print(f"{t:>4} {before:>12.3e} {after:>12.3e}")
+
+    plot_dir = Path("test/plots/all_bins")
+    for i, t in enumerate(target_bins):
+        plot_registration_summary_3d(
+            template, targets[i:i + 1], velocity_field[i:i + 1], deformed_template[i:i + 1], meta_data,
+            savepath=plot_dir / f"registration_summary_bin_{template_bin}_to_{t}.png",
+        )
+
+    # The template, followed by the deformed template for every target bin: should reproduce the breathing motion.
+    plot_deformation_sequence_gif_3d(
+        [template] + [deformed_template[i:i + 1] for i in range(len(target_bins))], meta_data,
+        savepath=plot_dir / "deformed_template_over_bins.gif",
+    )
+    plot_deformation_sequence_gif_3d(
+        [template] + [targets[i:i + 1] for i in range(len(target_bins))], meta_data,
+        savepath=plot_dir / "targets_over_bins.gif",
+    )
+
+
 if __name__ == "__main__":
 
-    d = 3
+    d = "3d_all_bins"
+    d= 2
     if d == 2:
         main()
     elif d == 3:
         main_3d()
+    elif d == "3d_all_bins":
+        main_3d_all_bins()
 

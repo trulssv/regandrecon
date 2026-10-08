@@ -50,3 +50,11 @@ def _to_jsonable(obj: Any) -> Any:
         except Exception:
             pass
     return obj
+
+
+def study_extent(scan_info: dict, shape: tuple[int, ...]) -> tuple[float, float, float]:
+    """Physical (D, H, W) extent in mm of a raw volume with the given shape. The extent is unchanged by resizing the volume."""
+    d, h, w = shape
+    pixel_spacing = scan_info["resampled_pixel_spacing"]  # (W spacing, H spacing), mm
+    slice_thickness = scan_info["resampled_slice_thickness"]  # mm
+    return (d * slice_thickness, h * pixel_spacing[1], w * pixel_spacing[0])

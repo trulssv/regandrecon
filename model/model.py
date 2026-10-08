@@ -13,6 +13,29 @@ from operators.lddmm.deform import FlowDeformationOperator
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 class HLPDModel(nn.Module):
     """This class implements the HLPD model, which is a deep learning-based approach for motion compensation in medical imaging. 
     The HLPD model consists of a CNN module that estimates the velocity field from the input image, and a deformation module that applies the estimated velocity field to the input image to produce the deformed image. 

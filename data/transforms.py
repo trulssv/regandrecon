@@ -90,8 +90,15 @@ class ResizeTransform(torch.nn.Module):
             torch.Tensor: The resized volume. This is achieved using bilinear (2D) or trilinear (3D) interpolation with torch.nn.functional.interpolate,
             where the batch dimension takes the place of the channel dimension.
         """
-        assert x.dim() == len(self.size) +1, f"Input tensor dimensions must have length equal to the size plus one but got {x.dim()} and expected {len(self.size) + 1}."
-        return torch.nn.functional.interpolate(x.unsqueeze(0), size=self.size, mode=self.mode, align_corners=False).squeeze(0)
+
+        if x.dim() == len(self.size): # (H, W) or (D, H, W) without batch and channel dimensions
+            return torch.nn.functional.interpolate(x.unsqueeze(0).unsqueeze(0), size=self.size, mode=self.mode, align_corners=False).squeeze(0).squeeze(0)
+        elif x.dim() == len(self.size) + 1: # (C, H, W) or (C, D, H, W) without batch dimension
+            return torch.nn.functional.interpolate(x.unsqueeze(0), size=self.size, mode=self.mode, align_corners=False).squeeze(0) 
+        elif x.dim() == len(self.size) + 2: # (N, C, H, W) or (N, C, D, H, W) with batch dimension
+            return torch.nn.functional.interpolate(x, size=self.size, mode=self.mode, align_corners=False)
+        else:
+            raise ValueError(f"Input tensor x of shape {x.shape} has unsupported dimensions: {x.dim()}. Expected {len(self.size)} (without batch and channel dimensions), {len(self.size) + 1} (without batch dimension), or {len(self.size) + 2} (with batch dimension).")
 
 
 
@@ -164,8 +171,8 @@ class DataTransform(torch.nn.Module):
     def forward(self, x: torch.Tensor | List[torch.Tensor]) -> torch.Tensor | List[torch.Tensor]:
 
         if isinstance(x, list):
-            assert all(isinstance(xi, torch.Tensor) for xi in x), "All elements of the input list must be torch.Tensor instances."
-            return [self.forward(xi) for xi in x]
+            assert all(isinstance(xt, torch.Tensor) for xt in x), "All elements of the input list must be torch.Tensor instances."
+            return [self.forward(xt) for xt in x]
 
         assert isinstance(x, torch.Tensor), "Input must be a torch.Tensor instance."
 

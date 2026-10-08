@@ -17,6 +17,7 @@ raw 4D CT ──► triage ──► split ──► preprocess ──► projec
 | `configs/ray_trafo/<geometry>.json` | Ray transform parameters per geometry: `parallel3d` (default) and `conebeam`. |
 | `quality_assessment.json` | Quality labels from the triage. Written by `triage.py`, read by `pipeline.py`. |
 | `triage.py` | Manual quality assessment: shows each raw study and asks for a high, medium or low label. |
+| `triage.ipynb` | Notebook version of the triage, for when no display is available (e.g. VS Code over SSH). Takes the same `resume` option as `triage.py`. |
 | `pipeline.py` | The data pipeline: patient-grouped split, preprocessing and projection (`data_pipeline`, `make_splits`). |
 | `transforms.py` | Volume transforms (resize, normalized range → HU → attenuation in mm⁻¹) and the Poisson noise model for projections. |
 | `loaders.py` | Raw loader (`RawDataSet`, `load_study`) and quality loader (`RegAndReconDataset`, `get_quality_loader`). |
@@ -27,7 +28,7 @@ raw 4D CT ──► triage ──► split ──► preprocess ──► projec
 ## Running the pipeline
 
 ```bash
-data/scripts/triage.sh                    # 1. label every raw study (overwrites quality_assessment.json); --no-gui-input for terminal input
+data/scripts/triage.sh                    # 1. label every raw study (overwrites quality_assessment.json); --resume to continue a previous triage, --no-gui-input for terminal input
 data/scripts/simulate.sh                  # 2. split, preprocess and simulate the high-quality studies with the parallel3d geometry
 data/scripts/simulate.sh --qualities high medium --geometry conebeam
 ```

@@ -17,7 +17,7 @@ from tqdm import tqdm
 from data.config import DEFAULT_GEOMETRY, PREPROCESS_CFG_PATH, QUALITY_ASSESSMENT_PATH, RAY_TRAFO_CFG_PATHS, SIMULATED_ROOT
 from data.loaders import load_study
 from data.transforms import DataTransform
-from data.utils import load_json, save_json_atomic
+from data.utils import load_json, save_json_atomic, study_extent
 from operators.tomo.ray_trafo import RayTransform
 from tracking import config_hash, file_hash, pin_config, start_run
 
@@ -87,13 +87,6 @@ def make_splits(
     return {"seed": seed, "ratios": ratios, "patients": patients, "studies": studies}
 
 
-def study_extent(scan_info: dict, shape: tuple[int, ...]) -> tuple[float, float, float]:
-    """Physical (D, H, W) extent in mm of a raw volume with the given shape. The extent is unchanged by resizing the volume."""
-    d, h, w = shape
-    pixel_spacing = scan_info["resampled_pixel_spacing"]  # (W spacing, H spacing), mm
-    slice_thickness = scan_info["resampled_slice_thickness"]  # mm
-    return (d * slice_thickness, h * pixel_spacing[1], w * pixel_spacing[0])
-
 
 def simulate_study(study_dir: Path, transform: DataTransform, ray_cfg: dict, time_step: float) -> tuple[torch.Tensor, torch.Tensor, dict]:
     """
@@ -114,9 +107,9 @@ def simulate_study(study_dir: Path, transform: DataTransform, ray_cfg: dict, tim
 
     # Preprocess: (T, D, H, W) in the normalized range -> resized (T, D, H, W) attenuation values in mm^-1
 
-    x = transform(torch.stack(series.data)).cpu()
-    n_time_bins = x.shape[0]
-    shape = tuple(x.shape[1:])
+    x: list[torch.Tensor] = transform(series.data)
+    n_time_bins = len(x)
+    shape = tuple(x[0].shape)
 
     # Simulate: one geometry per time bin, each lasting time_step time units (no gating times are available).
 
@@ -125,8 +118,9 @@ def simulate_study(study_dir: Path, transform: DataTransform, ray_cfg: dict, tim
     ray_trafo._init_ray_transform(shape=shape, extent=extent, time_steps=time_steps)
 
     with torch.no_grad():
-        y = ray_trafo([xt.unsqueeze(0) for xt in x])  # list of T (1, views, cols, rows)
-    y = torch.cat(y, dim=0)  # (T, views, cols, rows)
+        y = ray_trafo(x)  # list of T (1, views, cols, rows)
+        y = ray_trafo.add_poisson_noise(y)
+    
 
     d, h, w = shape
     meta = {
@@ -140,7 +134,7 @@ def simulate_study(study_dir: Path, transform: DataTransform, ray_cfg: dict, tim
         "n_time_bins": n_time_bins,
         "time_steps": time_steps,
     }
-    return x, y, meta
+    return torch.cat(x, dim=0), torch.cat(y, dim=0), meta
 
 
 def data_pipeline(qualities: tuple[str, ...] = ("high",), geometry: str = DEFAULT_GEOMETRY, out_root: Path | None = None, overwrite: bool = False,

@@ -163,7 +163,8 @@ class StaticVisualization:
 
         extent = [self.Z, self.Y, self.X]
         del extent[{"axial": 0, "coronal": 1, "sagittal": 2}[plane]] 
-        extent = (0.0, float(extent[0]), 0.0, float(extent[1]))
+        # extent now holds the physical size of the slice's (rows, cols); imshow expects (left, right, bottom, top), i.e. cols first.
+        extent = (0.0, float(extent[1]), 0.0, float(extent[0]))
         
         assert len(extent) == 4, f"Expected extent to have 4 elements for 2D visualization, but got {len(extent)} elements." 
 
