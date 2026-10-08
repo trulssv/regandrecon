@@ -1,4 +1,4 @@
-from typing import Tuple, List, overload, Literal
+from typing import Tuple, List, overload, Literal, cast
 from dataclasses import dataclass, asdict
 # torch imports
 
@@ -183,29 +183,29 @@ class HLPDBlock(nn.Module):
             return nn.ModuleList([copy.deepcopy(module) for _ in range(self.time_steps)]) if not shared else nn.ModuleList([module])
 
     @overload
-    def forward(self, x: Tuple[List[torch.Tensor], ...]) -> Tuple[List[torch.Tensor], ...]: ...
+    def forward(self, x: Tuple[List[torch.Tensor], ...], g: List[torch.Tensor]) -> Tuple[List[torch.Tensor], ...]: ...
     @overload
-    def forward(self, x: Tuple[torch.Tensor, ...]) -> Tuple[torch.Tensor, ...]: ...
+    def forward(self, x: Tuple[torch.Tensor, ...], g: torch.Tensor) -> Tuple[torch.Tensor, ...]: ...
 
-    def forward(self, x: Tuple[List[torch.Tensor], ...] | Tuple[torch.Tensor, ...]) -> Tuple[List[torch.Tensor], ...] | Tuple[torch.Tensor, ...]:
+    def forward(self, x: Tuple[List[torch.Tensor], ...] | Tuple[torch.Tensor, ...], g: List[torch.Tensor] | torch.Tensor) -> Tuple[List[torch.Tensor], ...] | Tuple[torch.Tensor, ...]:
         """Forward pass of the HLPD iteration model.
 
         Args:
-            x: A tuple containing four elements (f, h, v, g), each of which can be
+            x: A tuple containing three elements (f, h, v), each of which can be
                 either a list of torch.Tensor or a single torch.Tensor. Where
                 f represents the primal variable, 
                 h represents the dual variable,
                 v represents the registration variable,
-                g represents the observed data,
+            g: The observed data, either as a list of torch.Tensor or a single torch.Tensor.
 
         Returns:
-            A tuple containing the updated (f, h, v, g) after one iteration of the model.
+            A tuple containing the updated (f, h, v) after one iteration of the model.
         """
 
 
         _validate_input(x)
 
-        f, h, v, g = x
+        f, h, v = x
 
         assert isinstance(f, list) and isinstance(h, list) and isinstance(v, list) and isinstance(g, list), f"Currently, only input as lists of torch.Tensor are supported."
         if self.recurrent:
@@ -359,12 +359,21 @@ class HLPDUnrolled(nn.Module):
             self.hlpd_model_list = nn.ModuleList([copy.deepcopy(self.hlpd_iter_model) for _ in range(self.num_iters)])
 
     @overload
-    def forward(self, x: Tuple[List[torch.Tensor], ...]) -> Tuple[List[torch.Tensor], ...]: ...
+    def forward(self, x: Tuple[List[torch.Tensor], ...], g: List[torch.Tensor]) -> Tuple[List[torch.Tensor], ...]: ...
     
     @overload
-    def forward(self, x: Tuple[torch.Tensor, ...]) -> Tuple[torch.Tensor, ...]: ...
+    def forward(self, x: Tuple[torch.Tensor, ...], g: torch.Tensor) -> Tuple[torch.Tensor, ...]: ...
 
-    def forward(self, x: Tuple[List[torch.Tensor], ...] | Tuple[torch.Tensor, ...]) -> Tuple[List[torch.Tensor], ...] | Tuple[torch.Tensor, ...]:
+    def forward(self, x: Tuple[List[torch.Tensor], ...] | Tuple[torch.Tensor, ...], g: List[torch.Tensor] | torch.Tensor) -> Tuple[List[torch.Tensor], ...] | Tuple[torch.Tensor, ...]:
+        """Forward pass of the HLPD unrolled model.
+
+        Args:
+            x: The input tuple of primal, dual and velocity variables.
+            g: The raw data (e.g., measurements from the imaging system).
+
+        Returns:
+            The updated tuple of primal and dual variables after applying the HLPD iterations.
+        """
         # Define the forward pass here
 
         # validate the input
@@ -374,7 +383,10 @@ class HLPDUnrolled(nn.Module):
         
         for hlpd_iter in self.hlpd_model_list:
             if self.grad_checkpointing:
-                x = checkpoint(hlpd_iter, x)
+                x = cast(
+            Tuple[List[torch.Tensor], ...] | Tuple[torch.Tensor, ...],
+            checkpoint(hlpd_iter, x, use_reentrant=False),
+        )
             else:
                 x = hlpd_iter(x)
         return x

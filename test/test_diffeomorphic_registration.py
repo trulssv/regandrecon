@@ -438,7 +438,7 @@ def main_3d_all_bins(idx: int = 5, template_bin: int = 0):
 if __name__ == "__main__":
 
     d = "3d_all_bins"
-    d= 2
+    # d= 2
     if d == 2:
         main()
     elif d == 3:
