@@ -109,7 +109,7 @@ def get_3d_template_and_targets_from_dataset(
     a single network can be trained to register the template to every other time bin at once. Also returns the indices of
     the target time bins and the study's meta_data."""
 
-    dataset = RegAndReconDataset(qualities=["high"], mode=mode, load_volume=True)
+    dataset = RegAndReconDataset(qualities=["medium"], mode=mode, load_volume=True)
     if len(dataset) == 0:
         raise RuntimeError(f"No finished '{mode}' studies of quality 'high' under {dataset.data_root}. Run the data pipeline for this split or choose another mode.")
     if idx is None:
@@ -438,7 +438,7 @@ def main_3d_all_bins(idx: int = 5, template_bin: int = 0):
 if __name__ == "__main__":
 
     d = "3d_all_bins"
-    # d= 2
+    d= 3
     if d == 2:
         main()
     elif d == 3:

@@ -16,8 +16,9 @@ from operators.lddmm.deform import FlowDeformationOperator
 from data.utils import study_extent
 
 def _validate_input(x: Tuple[List[torch.Tensor], ...] | Tuple[torch.Tensor, ...]) -> None:
-    if not isinstance(x, tuple) or len(x) != 4:
-        raise ValueError("Input must be a tuple of at least four elements.")
+    """Checks that the input is a tuple (x, y, v) of either lists of torch.Tensor or torch.Tensor. """
+    if not isinstance(x, tuple) or len(x) != 3:
+        raise ValueError("Input must be a tuple of three elements.")
     if all(isinstance(elem, list) for elem in x):
         if not all(isinstance(sub_elem, torch.Tensor) for sublist in x for sub_elem in sublist):
             raise ValueError("All elements in the input lists must be torch.Tensor.")
@@ -68,7 +69,7 @@ class RayTrafoParams:
 class DataParams:
     shape: tuple[int, ...]
     extent: tuple[float, ...]
-    time_steps: list[float]
+    time_steps: list[float] 
 
 
 @dataclass
@@ -144,7 +145,7 @@ class HLPDBlock(nn.Module):
             primal_net: ConvStack,              # Primal module
             dual_net: ConvStack,                # Dual module
             motion_net: ConvStack,              # Registration module
-            ray_trafo_module: RayTransform,      # Ray transform module (analytical)
+            ray_trafo: RayTransform,      # Ray transform module (analytical)
             recurrent: bool,                    # Whether the model is recurrent in time
             time_steps: int,
             shared: bool,                       # Whether the model is shared across iterations
@@ -158,7 +159,7 @@ class HLPDBlock(nn.Module):
 
         # Define blocks
 
-        self.ray_trafo = ray_trafo_module
+        self.ray_trafo = ray_trafo
 
         self.dual_net = self._init_module(dual_net, shared, recurrent)
         self.primal_net = self._init_module(primal_net, shared, recurrent)
@@ -258,19 +259,24 @@ class HLPDBlock(nn.Module):
 
 
                 f_t = lambda_module(
+                    torch.cat([
                     torch.stack([
                         f[t],           # same time, previous iteration
                         f_t,            # previous time, current iteration
                         Tadj_curr_t,    # adjoint of the current time step's dual variable
-                        v_t             # previous time, current iteration
-                    ], dim=1)
+                    ], dim=1),
+                        v_t # previous time, current iteration
+                    ]             
+
+                
+                    )
                     )
 
                 v_t = sigma_module(
-                    torch.stack([
-                        v[t],           # same time, previous iteration
-                        v_t,            # previous time, current iteration
-                        f_t             # current time, updated primal variable
+                    torch.cat([
+                        v[t],                        # same time, previous iteration
+                        v_t,                         # previous time, current iteration
+                        f_t.unsqueeze(1)             # current time, updated primal variable
                     ], dim=1)
                     )
 
@@ -293,7 +299,7 @@ class HLPDBlock(nn.Module):
             Tf = torch.stack(self.ray_trafo(f), dim=1)
             f = torch.stack(f, dim=1)
             h = torch.stack(h, dim=1)
-            v = torch.stack(v, dim=1)
+            v = torch.cat(v, dim=1)             # TODO: we need to figure out how to compress the time and channel dimensions to a single dimension. Currently, we just concatinate.
             g = torch.stack(g, dim=1)
 
 
@@ -368,7 +374,7 @@ class HLPDUnrolled(nn.Module):
         """Forward pass of the HLPD unrolled model.
 
         Args:
-            x: The input tuple of primal, dual and velocity variables.
+            x: The input tuple of primal, dual and velocity variables. These are the initialized values for the HLPD iterations (default is zero initialization).
             g: The raw data (e.g., measurements from the imaging system).
 
         Returns:
@@ -385,10 +391,10 @@ class HLPDUnrolled(nn.Module):
             if self.grad_checkpointing:
                 x = cast(
             Tuple[List[torch.Tensor], ...] | Tuple[torch.Tensor, ...],
-            checkpoint(hlpd_iter, x, use_reentrant=False),
+            checkpoint(hlpd_iter, *(x, g), use_reentrant=False),
         )
             else:
-                x = hlpd_iter(x)
+                x = hlpd_iter(x, g)
         return x
 
 
@@ -409,6 +415,8 @@ class HLPDModel(nn.Module):
                 ray_trafo_params: RayTrafoParams, 
                 deform_params: DeformParams,
                 T: int, # Number of time bins
+                B: int, # batch size
+                shape: tuple[int, int, int], 
                 device: torch.device = torch.device("cpu"))-> None:
         
         super(HLPDModel, self).__init__()
@@ -428,8 +436,15 @@ class HLPDModel(nn.Module):
         # 
 
         self.device = device
-        self.T = T
 
+        # set spatio-temporal shape params --> general shape is T x B x *spatial_dims where the first (time) dimension is represented with a list
+
+        self.T = T          # tims bins
+        self.B = B          # batch size
+
+
+        self.shape = shape  # spatial shape
+        self.sino_shape = (ray_trafo_params.nDetectorCols, ray_trafo_params.nDetectorRows, ray_trafo_params.nViews) # projection shape
 
         ## ----------------- Build operators
 
@@ -465,15 +480,41 @@ class HLPDModel(nn.Module):
 
 
 
-    def update_ray_trafo(self, meta, shape):
-        extent = study_extent(meta, shape)
+    def set_geometry(self, meta: dict):
+        """We have to set the spatial geometry parameters dynamically for each volume since the acqusition protocols differed for the scans.
+        This mainly affects the number of slices on the slice spacing. This means that we also need to redefine the ray transform dynamically 
+        since it depends on the 3D reconstruction space
+        Args:
+            meta: dict containing the scan specific 
+        """
+        extent = study_extent(meta, self.shape)
+        self.extent = extent
         time_steps = [1.0] * self.T
-        self.ray_trafo._init_ray_transform(shape, extent, time_steps)
+        self.ray_trafo._init_ray_transform(self.shape, extent, time_steps)
+
+    def initialize(self) -> Tuple[List[torch.Tensor], ...]:
+
+        f0 = [torch.zeros((self.B, *self.shape)) for t in range(self.T)]
+        h0 = [torch.zeros((self.B, *self.sino_shape)) for t in range(self.T)]
+        v0 = [torch.zeros((self.B, 3, *self.shape)) for t in range(self.T)] # NOTE internally, it is convenient to use (T, B, 3, D, H, W) for v, but the flow deform operator expects (T, D, H, W, 3) so we will have to transform the output to match this format
+        
+        return (f0, h0, v0)
 
 
-    def forward(self, g: list[torch.Tensor], meta, shape):
+    def forward(self, g: list[torch.Tensor]) -> Tuple[List[torch.Tensor], ...]:
 
-        # NOTE: in general we will want to update the ray transform to match the geometry of the input
-        self.update_ray_trafo(meta, shape)
+        assert hasattr(self, "ray_trafo"), f"Must initialize the ray_trafo operator before calling the forward method. This is done with self.set_geometry"
 
-        return self.unrolled_model(g)
+        # NOTE: in general we will want to update the ray transform to match the geometry of the input. Make sure to do before calling the forward method. 
+
+        x = self.initialize()
+
+        out: Tuple[List[torch.Tensor], ...] = self.unrolled_model(x, g)
+        f, h, v = out
+
+        v = [vt.permute(0, 4, 1, 2, 3) for vt in v] # NOTE the flow deformation operator expects List[B, D, H, W, 3]
+        f_template = f[0]
+
+        f_diffeo: List[torch.Tensor] = self.deform(f_template, v) # apply flow deformation operator to obtain the registered sequence
+
+        return (f_diffeo, v)

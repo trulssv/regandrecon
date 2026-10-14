@@ -260,10 +260,10 @@ def test_pipeline_resumes_and_pins_config(tiny_pipeline):
 
 @pytest.mark.skipif(not (DEFAULT_SIMULATED_ROOT / "splits.json").exists(), reason=f"No simulated data in {DEFAULT_SIMULATED_ROOT}")
 def test_real_quality_loader():
+    if len(RegAndReconDataset(["high", "medium"], "train")) == 0:  # check before building the loader: a shuffling DataLoader rejects an empty dataset
+        pytest.skip("No simulated high/medium training studies.")
     loader = get_quality_loader(["high", "medium"], "train", batch_size=1, load_volume=True)
     assert isinstance(loader.dataset, Sized)
-    if len(loader.dataset) == 0:
-        pytest.skip("No simulated high/medium training studies.")
     batch = next(iter(loader))
     meta = batch["meta"][0]
     assert len(batch["sinogram"]) == meta["n_time_bins"]

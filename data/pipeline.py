@@ -118,7 +118,7 @@ def simulate_study(study_dir: Path, transform: DataTransform, ray_cfg: dict, tim
     ray_trafo._init_ray_transform(shape=shape, extent=extent, time_steps=time_steps)
 
     with torch.no_grad():
-        y = ray_trafo(x)  # list of T (1, views, cols, rows)
+        y = ray_trafo([xt.unsqueeze(0) for xt in x])  # odl's OperatorModule needs a leading batch axis: list of T (1, views, cols, rows)
         y = ray_trafo.add_poisson_noise(y)
     
 
@@ -134,7 +134,7 @@ def simulate_study(study_dir: Path, transform: DataTransform, ray_cfg: dict, tim
         "n_time_bins": n_time_bins,
         "time_steps": time_steps,
     }
-    return torch.cat(x, dim=0), torch.cat(y, dim=0), meta
+    return torch.stack(x, dim=0), torch.cat(y, dim=0), meta  # (T, D, H, W), (T, views, cols, rows)
 
 
 def data_pipeline(qualities: tuple[str, ...] = ("high",), geometry: str = DEFAULT_GEOMETRY, out_root: Path | None = None, overwrite: bool = False,

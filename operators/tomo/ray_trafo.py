@@ -351,6 +351,16 @@ class RayTransform:
     def __call__(self, x: list[torch.Tensor]) -> list[torch.Tensor]: ...
 
     def __call__(self, x) -> torch.Tensor | list[torch.Tensor]:
+        """Maps a 3D volume or 4D spatio-temporal sequence of 3D volumes to projection data.
+        
+        Args:
+            x: 3D volume B x D x H x W or a spatio-temporal 4D volume T x B x D x H x W where the first (temporal) dimension is represented as a list.
+
+        Out:
+            y: Projection data. Either B x nCol x nRow x nAngles for a 3D volume or T x B x nCol x nRow x nAngles for a spatiotemporal volume, where the first dimension is represented as a list. 
+               (nCols, nRows) is the detector partition and nAngles is the angular (view) partition. 
+        
+        """
         if isinstance(x, list):
             assert isinstance(self.ray_transform, list) and len(x) == len(self.ray_transform), "Input must be a list of tensors when the ray transform is a list."
             assert not hasattr(self, 'time_bin'), "Time bin specific ray transform should not be set when input is a list."
