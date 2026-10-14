@@ -341,6 +341,83 @@ def test_coupling_with_flow_deformation():
     assert run_coupling_demo()
 
 
+def test_geometry_cache_and_lazy_fbp():
+    """Switching back to a geometry reuses its operators, and the FBP operators are only built on first use, per geometry."""
+    rt = RayTransform(geometry="Parallel2dGeometry", nDetectorCols=64, DetectorColExtent=100.0, GantrySpeed=torch.pi, nViews=32, Flux=1e14,
+                      nDetectorRows=None, DetectorRowExtent=None, rotAxis=None, source_radius=None, det_radius=None, extent=None, shape=None)
+    shape, time_steps = (32, 32), [0.5, 0.5]
+    rt._init_ray_transform(shape, (50.0, 50.0), time_steps)
+    ops_a = rt.ray_transform
+    assert all(entry["fbp_operator"] is None for entry in rt._geometry_cache.values())
+
+    rt._init_ray_transform(shape, (80.0, 80.0), time_steps)
+    ops_b, fbp_b = rt.ray_transform, rt.fbp_operator
+    assert ops_b is not ops_a and rt.extent == (80.0, 80.0)
+
+    rt._init_ray_transform(shape, (50.0, 50.0), time_steps)
+    assert rt.ray_transform is ops_a and rt.extent == (50.0, 50.0) and rt.reco_space.max_pt[0] == 25.0
+    assert rt._geometry_cache[rt._geometry_key]["fbp_operator"] is None    # not built for geometry a yet
+    assert rt.fbp_operator is not fbp_b
+
+    x = torch.rand(1, *shape)
+    assert torch.equal(rt.forward_bin(x, 0), ops_a[0](x))
+    assert rt.fbp_bin(rt.forward_bin(x, 0), 0).shape == x.shape
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="needs a GPU")
+@pytest.mark.parametrize("geometry", ["Parallel3dAxisGeometry", "ConeBeamGeometry"])
+def test_astra_cuda_module_matches_odl(geometry):
+    """AstraCudaModule (ASTRA on CUDA tensors) computes the same projections, back projections and gradients as odl's OperatorModule,
+    for an anisotropic volume, limited-angle time bins and extra batch axes, and passes CPU tensors to OperatorModule.
+
+    The results are bitwise those of odl's own GPU backend (an odl space with impl='pytorch'). ASTRA rounds the parallel beam back
+    projection slightly differently for host than for device data, so they differ from our numpy-backed odl spaces by about 5e-6
+    relative to the norm (up to 2e-4 relative to the maximum in single voxels)."""
+    import odl
+    import odl.applications.tomo as tomo
+    from odl.contrib.torch import OperatorModule
+    from operators.tomo.ray_trafo import AstraCudaModule
+
+    def assert_norm_close(actual: torch.Tensor, expected: torch.Tensor, rtol: float = 2e-5) -> None:
+        assert ((actual - expected).norm() / expected.norm()).item() <= rtol
+
+    cone = geometry == "ConeBeamGeometry"
+    rt = RayTransform(geometry=geometry, nDetectorCols=48, DetectorColExtent=400.0, GantrySpeed=2 * torch.pi, nViews=120, Flux=1e14,
+                      nDetectorRows=20, DetectorRowExtent=200.0, rotAxis=(1.0, 0.0, 0.0), source_radius=750.0 if cone else None,
+                      det_radius=750.0 if cone else None, extent=None, shape=None)
+    shape = (16, 20, 24)
+    rt._init_ray_transform(shape, (160.0, 200.0, 240.0), [0.25, 0.25])
+    device = torch.device("cuda")
+    gen = torch.Generator().manual_seed(0)
+
+    gpu_space = odl.uniform_discr(rt.reco_space.min_pt, rt.reco_space.max_pt, shape, dtype='float32', impl='pytorch', device='cuda:0')
+    for t in range(2):
+        fwd, adj = rt.ray_transform[t], rt.ray_transform_adjoint[t]
+        assert isinstance(fwd, AstraCudaModule) and isinstance(adj, AstraCudaModule)
+        odl_fwd, odl_adj = OperatorModule(fwd.operator), OperatorModule(adj.operator)
+
+        gpu_op = tomo.RayTransform(gpu_space, rt.geometries[t], impl='astra_cuda')
+        x_gpu = torch.rand(1, *shape, generator=gen).to(device)
+        y_gpu = OperatorModule(gpu_op)(x_gpu)
+        assert torch.equal(fwd(x_gpu), y_gpu)
+        assert torch.equal(adj(y_gpu), OperatorModule(gpu_op.adjoint)(y_gpu))
+
+        x = torch.rand(2, 1, *shape, generator=gen)                         # extra batch axes
+        y_shape = odl_fwd(x[0]).shape[1:]
+        y = torch.rand(2, 1, *y_shape, generator=gen)
+        for module, odl_module, inp in ((fwd, odl_fwd, x), (adj, odl_adj, y)):
+            ref_in = inp.clone().requires_grad_()
+            ref_out = odl_module(ref_in)
+            ref_out.backward(torch.ones_like(ref_out) + ref_out.detach())   # a non-constant output gradient
+            cuda_in = inp.to(device).requires_grad_()
+            cuda_out = module(cuda_in)
+            cuda_out.backward((torch.ones_like(ref_out) + ref_out.detach()).to(device))
+            assert_norm_close(cuda_out.detach().cpu(), ref_out.detach())
+            assert cuda_in.grad is not None and ref_in.grad is not None
+            assert_norm_close(cuda_in.grad.cpu(), ref_in.grad)
+            torch.testing.assert_close(module(inp), odl_module(inp))      # CPU tensors go through odl
+
+
 def format_shape(s):
     if isinstance(s, list):
         return "[" + ", ".join(str(tuple(x)) for x in s) + "]"

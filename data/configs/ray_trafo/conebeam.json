@@ -4,7 +4,7 @@
     "nDetectorRows": 96,
     "DetectorColExtent": 908.8,
     "DetectorRowExtent": 80.0,
-    "GantrySpeed": 1.5707963267948966,
+    "GantrySpeed": 0.15707963267948966, 
     "nViews": 512,
     "Flux": 1e15,
     "rotAxis": [1.0, 0.0, 0.0],

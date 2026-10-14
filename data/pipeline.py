@@ -5,7 +5,7 @@ The data pipeline (see data/README.md): builds the simulated dataset from the qu
 3. Forward projection of each time bin with its own RayTransform geometry, giving clean (noise-free) line integrals.
    Noise is added on the fly by the quality loader (data.loaders.get_quality_loader with data.transforms.PoissonNoise).
 
-Run: data/scripts/simulate.sh [--qualities high medium] [--geometry parallel3d|conebeam] [--overwrite]
+Run: data/scripts/simulate.sh [--qualities high medium] [--geometry parallel3d|conebeam] [--max-studies N] [--overwrite]
 """
 import argparse
 import logging
@@ -87,6 +87,39 @@ def make_splits(
     return {"seed": seed, "ratios": ratios, "patients": patients, "studies": studies}
 
 
+def select_subset(studies: dict, ratios: dict[str, float], n: int, seed: int = 42) -> dict:
+    """
+    Selects n of the given studies, spread over the splits according to ratios (as far as each split has studies).
+
+    Studies are visited in a seeded random order per split, and each pick goes to the split that is furthest below its target, so the subset of
+    n studies is contained in the subset of n + 1 studies: growing n reuses the studies that are already simulated.
+
+    input:
+        studies: {study_id: {"split", ...}}, e.g. the "studies" of make_splits.
+        ratios: The target fraction of studies per split.
+        n: The number of studies to select.
+        seed: The seed for the study order.
+    output:
+        The selected subset of studies.
+    """
+
+    g = torch.Generator().manual_seed(seed)
+    queues = {}
+    for split in SPLITS:
+        ids = sorted(study_id for study_id, info in studies.items() if info["split"] == split)
+        queues[split] = [ids[idx] for idx in torch.randperm(len(ids), generator=g).tolist()]
+
+    counts = {split: 0 for split in SPLITS}
+    selected = []
+    while len(selected) < n and any(queues.values()):
+        total = len(selected) + 1
+        split = max((s for s in SPLITS if queues[s]), key=lambda s: ratios[s] * total - counts[s])
+        selected.append(queues[split].pop(0))
+        counts[split] += 1
+
+    return {study_id: studies[study_id] for study_id in selected}
+
+
 
 def simulate_study(study_dir: Path, transform: DataTransform, ray_cfg: dict, time_step: float) -> tuple[torch.Tensor, torch.Tensor, dict]:
     """
@@ -138,7 +171,7 @@ def simulate_study(study_dir: Path, transform: DataTransform, ray_cfg: dict, tim
 
 
 def data_pipeline(qualities: tuple[str, ...] = ("high",), geometry: str = DEFAULT_GEOMETRY, out_root: Path | None = None, overwrite: bool = False,
-                  quality_assessment_path: Path = QUALITY_ASSESSMENT_PATH) -> None:
+                  quality_assessment_path: Path = QUALITY_ASSESSMENT_PATH, max_studies: int | None = None) -> None:
     """
     Builds the simulated dataset: splits the assessed studies, then preprocesses and simulates each study of the given qualities.
 
@@ -158,6 +191,8 @@ def data_pipeline(qualities: tuple[str, ...] = ("high",), geometry: str = DEFAUL
         out_root: The output directory. Defaults to SIMULATED_ROOT / geometry.
         overwrite: Re-simulate studies that are already done.
         quality_assessment_path: The quality assessment written by data/triage.py.
+        max_studies: If given, only a seeded subset of this many studies (spread over the splits, see select_subset) is simulated.
+                     The split itself is always made over all assessed studies.
     """
 
     if out_root is None:
@@ -172,7 +207,8 @@ def data_pipeline(qualities: tuple[str, ...] = ("high",), geometry: str = DEFAUL
     }
     pin_config(out_root / "config.json", config)  # Refuse to mix data simulated with different configs in the same out_root.
 
-    args = {"qualities": list(qualities), "out_root": out_root, "overwrite": overwrite, "quality_assessment_path": quality_assessment_path}
+    args = {"qualities": list(qualities), "out_root": out_root, "overwrite": overwrite, "quality_assessment_path": quality_assessment_path,
+            "max_studies": max_studies}
     with start_run("simulation", config, log_dir=out_root, args=args) as run:
         quality_assessment = load_json(quality_assessment_path)
 
@@ -193,6 +229,8 @@ def data_pipeline(qualities: tuple[str, ...] = ("high",), geometry: str = DEFAUL
         transform = DataTransform.from_config(preprocess_cfg)
 
         studies = {study_id: info for study_id, info in splits["studies"].items() if info["quality"] in qualities}
+        if max_studies is not None:
+            studies = select_subset(studies, splits["ratios"], max_studies, seed=splits["seed"])
         logger.info("Simulating %d studies of qualities %s into %s", len(studies), list(qualities), out_root)
 
         for study_id, info in tqdm(studies.items(), desc="Simulating studies"):
@@ -223,11 +261,13 @@ def main():
     parser.add_argument("--qualities", nargs="+", default=["high", "medium"], choices=["high", "medium", "low"])
     parser.add_argument("--geometry", default=DEFAULT_GEOMETRY, choices=sorted(RAY_TRAFO_CFG_PATHS))
     parser.add_argument("--out-root", type=Path, default=None, help="Defaults to SIMULATED_ROOT/<geometry>.")
+    parser.add_argument("--max-studies", type=int, default=None, help="Only simulate a seeded subset of this many studies, spread over the splits.")
     parser.add_argument("--overwrite", action="store_true", help="Re-simulate studies that are already done.")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-    data_pipeline(qualities=tuple(args.qualities), geometry=args.geometry, out_root=args.out_root, overwrite=args.overwrite)
+    data_pipeline(qualities=tuple(args.qualities), geometry=args.geometry, out_root=args.out_root, overwrite=args.overwrite,
+                  max_studies=args.max_studies)
 
 
 if __name__ == "__main__":

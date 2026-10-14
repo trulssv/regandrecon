@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 
 # Raw 4D CT data, organized as "patient_*_*/study_*/series_*". Can be overridden with the REGANDRECON_DATA_ROOT environment variable.
-DATA_ROOT: Path = Path(os.environ.get("REGANDRECON_DATA_ROOT", "/media/truls-svensson/LDDMM/processed"))
+DATA_ROOT: Path = Path(os.environ.get("REGANDRECON_DATA_ROOT", "/media/trulssv/LDDMM/processed"))
 
 # Output of the data pipeline, organized as "<geometry>/<quality>/<split>/<study_id>". Can be overridden with the REGANDRECON_SIMULATED_ROOT environment variable.
 SIMULATED_ROOT: Path = Path(os.environ.get("REGANDRECON_SIMULATED_ROOT", DATA_ROOT.parent / "simulated"))

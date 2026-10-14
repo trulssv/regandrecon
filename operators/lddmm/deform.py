@@ -554,14 +554,15 @@ class FlowDeformationOperator(torch.nn.Module):
         # Validate the input image and velocity field for consistency in terms of dimensions, channels, and batch size.
 
         self._validate_template_and_velocity(x, v)
-        v = self._normalize(v)  # Normalize the velocity field to ensure that the deformation values are in the range [-1, 1]
 
-
+        # NOTE: the time-dependent case recurses on each velocity field, which is normalized in its own call. Normalizing before recursing would normalize twice.
         if isinstance(v, list): # Deal with the case where the velocity field is time-dependent (a list of tensors)
             if not superres:
                 return [self.forward(x, vt, superres=superres) for vt in v]
             else: 
                 return list(chain.from_iterable(self.forward(x, vt, superres=superres) for vt in v)) # Here we need to flatten the list of lists of tensors to a list of tensors
+
+        v = self._normalize(v)  # Normalize the velocity field to ensure that the deformation values are in the range [-1, 1]
 
 
         phi: torch.Tensor | list[torch.Tensor] = self.velocity_integrator(v, superres=superres)  # Integrate the velocity field to obtain the deformation field for the current time step

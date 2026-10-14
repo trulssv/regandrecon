@@ -1,3 +1,4 @@
+import astra
 import odl
 import odl.applications.tomo as tomo
 from odl.contrib.torch import OperatorModule
@@ -6,7 +7,8 @@ from odl.applications.tomo.analytic import filtered_back_projection as _fbp_modu
 import torch
 import torch.nn.functional as F
 
-from typing import Optional, Sequence, Tuple, List, overload
+from collections import OrderedDict
+from typing import Any, Callable, Optional, Sequence, Tuple, List, cast, overload
 
 
 # NOTE: the installed odl version's `_fbp_filter` (odl/applications/tomo/analytic/filtered_back_projection.py)
@@ -76,6 +78,97 @@ DEFAULT_CONFIG = {
 }
 
 
+# NOTE: OperatorModule evaluates the operator on its domain's device, which is the CPU for our numpy-backed odl spaces. Every call on a
+# CUDA tensor therefore copies the data to the host and back, around ASTRA's own host <-> GPU copies, and synchronizes with the host:
+# about 50 ms per forward or back projection of a 50x256x256 volume, of which ASTRA's kernels take 3-5 ms. (odl spaces with
+# impl='pytorch' are no faster, as odl copies and checks the data instead.) AstraCudaModule runs ASTRA directly on the CUDA tensors,
+# reusing the projector and scaling factors of odl's own backend, so that it computes exactly what OperatorModule computes.
+
+_astra_gpu_index: int | None = None     # the GPU ASTRA was last set to run on, see _set_astra_gpu
+
+
+def _set_astra_gpu(device: torch.device) -> None:
+    """ASTRA runs on one GPU per process (GPU 0 unless set), which must be the one holding the linked tensors."""
+    global _astra_gpu_index
+    index = device.index if device.index is not None else torch.cuda.current_device()
+    if index != _astra_gpu_index:
+        astra.set_gpu_index(index)
+        _astra_gpu_index = index
+
+
+def _astra_project(impl, x: torch.Tensor, adjoint: bool) -> torch.Tensor:
+    """ASTRA forward (adjoint=False) or back projection of a single CUDA volume or sinogram, in odl's layout and scaling (see
+    AstraCudaImpl.call_forward/call_backward). Sinograms are (angles, *detector) in odl and (det rows, angles, det cols) in ASTRA."""
+    _set_astra_gpu(x.device)
+    # NOTE: ASTRA's calls block until its kernels are done, but it does not know about torch's stream, so the work torch queued to
+    # produce x must be finished first.
+    torch.cuda.current_stream(x.device).synchronize()
+    with impl._mutex:
+        if adjoint:
+            proj = x.permute(*impl.transpose_tuple).contiguous()
+            vol = torch.empty(astra.geom_size(impl.vol_geom), dtype=torch.float32, device=x.device)
+            astra.experimental.direct_BP3D(impl.projector_id, vol, proj)
+            return vol * impl.bp_scaling_factor
+        vol = x.contiguous()
+        proj = torch.empty(astra.geom_size(impl.proj_geom), dtype=torch.float32, device=x.device)
+        astra.experimental.direct_FP3D(impl.projector_id, vol, proj)
+        return (proj * impl.fp_scaling_factor).permute(*impl.transpose_tuple).contiguous()
+
+
+class _AstraProjection(torch.autograd.Function):
+    """Forward (adjoint=False) or back projection with the same gradients as odl's OperatorFunction: the adjoint projection scaled by
+    the ratio of the domain and range cell volumes, which is the transpose with respect to the plain (unweighted) dot product."""
+
+    @staticmethod
+    def forward(ctx, x: torch.Tensor, impl, adjoint: bool, in_shape: tuple[int, ...], grad_scale: float) -> torch.Tensor:
+        ctx.impl, ctx.adjoint, ctx.grad_scale = impl, adjoint, grad_scale
+        extra_shape = x.shape[:-len(in_shape)]
+        ctx.extra_shape = extra_shape
+        out = [_astra_project(impl, xi, adjoint) for xi in x.detach().reshape(-1, *in_shape)]
+        return torch.stack(out).reshape(*extra_shape, *out[0].shape)
+
+    @staticmethod
+    def backward(ctx, grad_out: torch.Tensor):
+        out_shape = grad_out.shape[len(ctx.extra_shape):]
+        grad = [_astra_project(ctx.impl, gi, not ctx.adjoint) for gi in grad_out.detach().reshape(-1, *out_shape)]
+        grad = torch.stack(grad).reshape(*ctx.extra_shape, *grad[0].shape) * ctx.grad_scale
+        return grad, None, None, None, None
+
+
+class AstraCudaModule(torch.nn.Module):
+    """Drop-in replacement of OperatorModule(ray_trafo) (adjoint=False) or OperatorModule(ray_trafo.adjoint) (adjoint=True) for an
+    odl astra_cuda RayTransform of a 3D geometry, which runs ASTRA directly on CUDA tensors (see the note above). CPU tensors are
+    passed to OperatorModule. Like OperatorModule, it accepts extra leading (batch) axes and exposes the odl operator as .operator."""
+
+    def __init__(self, ray_trafo: tomo.RayTransform, adjoint: bool = False) -> None:
+        super().__init__()
+        self.ray_trafo = ray_trafo
+        self.adjoint = adjoint
+        self.operator = ray_trafo.adjoint if adjoint else ray_trafo
+        self._odl_module = OperatorModule(self.operator)
+        domain, range_ = cast(Any, self.operator.domain), cast(Any, self.operator.range)
+        # NOTE: the gradient scale of OperatorFunction, i.e. the domain over the range cell volume of the operator.
+        self.grad_scale = domain.weighting.const / range_.weighting.const
+        self.in_shape = tuple(domain.shape)
+
+    @staticmethod
+    def supports(ray_trafo: tomo.RayTransform) -> bool:
+        domain = cast(Any, ray_trafo.domain)
+        return ray_trafo.impl == "astra_cuda" and domain.ndim == 3 and domain.impl == "numpy"
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if not x.is_cuda:
+            return self._odl_module(x)
+        assert x.dtype == torch.float32, f"ASTRA needs float32 data, got {x.dtype}."
+        assert tuple(x.shape[-len(self.in_shape):]) == self.in_shape, f"Expected input of shape (*, {self.in_shape}), got {tuple(x.shape)}."
+        return _AstraProjection.apply(x, self.ray_trafo.get_impl(True), self.adjoint, self.in_shape, self.grad_scale)
+
+
+def _projection_module(ray_trafo: tomo.RayTransform, adjoint: bool = False) -> torch.nn.Module:
+    """AstraCudaModule where it applies, otherwise odl's OperatorModule."""
+    if AstraCudaModule.supports(ray_trafo):
+        return AstraCudaModule(ray_trafo, adjoint)
+    return OperatorModule(ray_trafo.adjoint if adjoint else ray_trafo)
 
 
 class RayTransform:
@@ -94,7 +187,7 @@ class RayTransform:
         DetectorColExtent: float,                                                           # Physical extent for the detector columns.
         GantrySpeed: float,                                                                 # radians per time unit
         nViews: int,                                                                        # views per time unit
-        Flux: float,                                                                        # number of photons per view
+        Flux: float,                                                                        # number of photons per time unit
         # Required for 3D geometries
         nDetectorRows: int | None,                                                          # Number of detector rows. None for 2D geometries
         DetectorRowExtent: float | None,                                                    # Physical extent for the detector rows. None for 2D geometries
@@ -147,6 +240,10 @@ class RayTransform:
         self.impl = impl
 
         self.verbose = verbose
+
+        # Operators of the most recently used geometries, see _init_ray_transform.
+        self._geometry_cache: OrderedDict[tuple, dict] = OrderedDict()
+        self._geometry_key: tuple | None = None
 
         assert any(geometry in geos for geos in GEOMETRIES.values()), f"Geometry {self.geometry} is not defined. It must be either a 2D geometry from {GEOMETRIES['2D']} or a 3D geometry from {GEOMETRIES['3D']}."
         assert self.geometry_class is not None, f"Geometry class for {self.geometry} could not be found in tomo module."
@@ -208,22 +305,6 @@ class RayTransform:
             dtype='float32',
         )
         return self.reco_space
-
-    def _set_time_bin(self, time_bin: int) -> None:
-        """Initializes or overwrites the self.bin_ray_trafo for the given time bin.
-
-        Parameters
-        ----------
-        time_bin : int
-            The time bin index for which to initialize or overwrite the ray transform.
-        """
-
-        assert hasattr(self, 'ray_transform') and isinstance(self.ray_transform, list), f"A time dependent ray transform must be initialized before setting the time bin."
-        assert hasattr(self, 'ray_transform_adjoint') and isinstance(self.ray_transform_adjoint, list), f"A time dependent ray transform adjoint must be initialized before setting the time bin."
-        assert hasattr(self, 'fbp_operator') and isinstance(self.fbp_operator, list), f"A time dependent FBP operator must be initialized before setting the time bin."
-
-        self.time_bin = time_bin
-
 
     @overload
     def _init_geometry(self, time_steps: float) -> tomo.Geometry: ...
@@ -301,9 +382,16 @@ class RayTransform:
             print("Reconstruction space initialized with shape:", self.shape, "and extent:", self.extent)
             print(f"Initialized {self.dim}D {"parallel" if self.parallel else ""}{self.geometry} with {len(self.geometries) if isinstance(self.geometries, list) else 1} geometries.")
 
+    # Attributes that depend on the geometry, saved and restored by the geometry cache of _init_ray_transform.
+    _GEOMETRY_ATTRS = ("shape", "extent", "time_steps", "reco_space", "angular_discretizations", "geometries", "ray_transform", "ray_transform_adjoint")
+    GEOMETRY_CACHE_SIZE = 8
+
     def _init_ray_transform(self, shape: tuple[int, ...], extent: tuple[float, ...], time_steps: list[float]|float) -> None:
         """
         Initialize the ray transform operator.
+
+        The operators of the GEOMETRY_CACHE_SIZE most recently used geometries (shape, extent and time steps) are cached, so that
+        switching between studies with the same geometry (e.g. HLPDModel.set_geometry for every training study) costs nothing.
 
         Parameters
         ----------
@@ -316,32 +404,53 @@ class RayTransform:
         """
         assert isinstance(time_steps, float) or (isinstance(time_steps, list) and all(isinstance(t, float) for t in time_steps)), "time_steps must be a list of floats or a single float."
 
+        key = (tuple(shape), tuple(float(e) for e in extent), tuple(time_steps) if isinstance(time_steps, list) else time_steps)
+        self._geometry_key = key
+        if key in self._geometry_cache:
+            self._geometry_cache.move_to_end(key)
+            for name, value in self._geometry_cache[key].items():
+                if name in self._GEOMETRY_ATTRS:
+                    setattr(self, name, value)
+            return
+
         self._init_data_params(shape, extent, time_steps)
-        # NOTE: We want to wrap each RayTransform in an OperatorModule to ensure consistent handling of operators and automatic differentiation.
-        self.ray_transform = [OperatorModule(tomo.RayTransform(self.reco_space, geometry, impl=self.impl)) for geometry in (self.geometries if isinstance(self.geometries, list) else [self.geometries])]  if isinstance(time_steps, list) else OperatorModule(tomo.RayTransform(self.reco_space, self.geometries, impl=self.impl))
+        # NOTE: We want to wrap each RayTransform in a torch module (AstraCudaModule, or odl's OperatorModule where it does not apply) to ensure consistent handling of operators and automatic differentiation.
+        self.ray_transform = [_projection_module(tomo.RayTransform(self.reco_space, geometry, impl=self.impl)) for geometry in (self.geometries if isinstance(self.geometries, list) else [self.geometries])]  if isinstance(time_steps, list) else _projection_module(tomo.RayTransform(self.reco_space, self.geometries, impl=self.impl))
 
         # NOTE: OperatorModule only exposes `forward` (it's a plain nn.Module wrapping one odl Operator) --
         # it has no `.adjoint`. The adjoint of the *underlying* odl operator (`.operator.adjoint`) is itself
         # a distinct odl Operator, so it needs its own OperatorModule to be callable on torch tensors.
         if isinstance(self.ray_transform, list):
-            self.ray_transform_adjoint = [OperatorModule(rt.operator.adjoint) for rt in self.ray_transform]
+            self.ray_transform_adjoint = [_projection_module(rt.operator, adjoint=True) for rt in self.ray_transform]
         else:
-            self.ray_transform_adjoint = OperatorModule(self.ray_transform.operator.adjoint)
+            self.ray_transform_adjoint = _projection_module(self.ray_transform.operator, adjoint=True)
 
-        # NOTE: tomo.fbp_op needs the raw odl Operator (it reads .domain/.range/.adjoint etc., which
-        # OperatorModule -- a plain nn.Module wrapper -- does not expose), and its result is itself a raw
-        # odl Operator that needs its own OperatorModule to be callable on torch tensors, same as adjoint
-        # above. (See the `_fbp_filter_patched` monkeypatch at the top of this module for why plain
-        # `filter_type='Ram-Lak'` needed a fix before it could be used here at all.)
-        if isinstance(self.ray_transform, list):
-            self.fbp_operator = [
-                OperatorModule(tomo.fbp_op(rt.operator, filter_type='Ram-Lak', frequency_scaling=1.0))
-                for rt in self.ray_transform
-            ]
-        else:
-            self.fbp_operator = OperatorModule(
-                tomo.fbp_op(self.ray_transform.operator, filter_type='Ram-Lak', frequency_scaling=1.0)
-            )
+        self._geometry_cache[key] = {name: getattr(self, name) for name in self._GEOMETRY_ATTRS} | {"fbp_operator": None}
+        while len(self._geometry_cache) > self.GEOMETRY_CACHE_SIZE:
+            self._geometry_cache.popitem(last=False)
+
+    @property
+    def fbp_operator(self) -> OperatorModule | list[OperatorModule]:
+        """The FBP operator(s) of the current geometry. Built on first use, as they take about 0.4 GB of host memory per time bin
+        and are not needed for training."""
+        assert self._geometry_key is not None, "Must initialize the ray transform before using the FBP operator, see _init_ray_transform."
+        entry = self._geometry_cache[self._geometry_key]
+        if entry["fbp_operator"] is None:
+            # NOTE: tomo.fbp_op needs the raw odl Operator (it reads .domain/.range/.adjoint etc., which
+            # OperatorModule -- a plain nn.Module wrapper -- does not expose), and its result is itself a raw
+            # odl Operator that needs its own OperatorModule to be callable on torch tensors, same as adjoint
+            # above. (See the `_fbp_filter_patched` monkeypatch at the top of this module for why plain
+            # `filter_type='Ram-Lak'` needed a fix before it could be used here at all.)
+            if isinstance(self.ray_transform, list):
+                entry["fbp_operator"] = [
+                    OperatorModule(tomo.fbp_op(rt.operator, filter_type='Ram-Lak', frequency_scaling=1.0))
+                    for rt in self.ray_transform
+                ]
+            else:
+                entry["fbp_operator"] = OperatorModule(
+                    tomo.fbp_op(self.ray_transform.operator, filter_type='Ram-Lak', frequency_scaling=1.0)
+                )
+        return entry["fbp_operator"]
 
 
     @overload
@@ -357,18 +466,14 @@ class RayTransform:
             x: 3D volume B x D x H x W or a spatio-temporal 4D volume T x B x D x H x W where the first (temporal) dimension is represented as a list.
 
         Out:
-            y: Projection data. Either B x nCol x nRow x nAngles for a 3D volume or T x B x nCol x nRow x nAngles for a spatiotemporal volume, where the first dimension is represented as a list. 
+            y: Projection data. Either B x nAngles x nCol x nRow for a 3D volume or T x B x nAngles x nCol x nRow for a spatiotemporal volume, where the first dimension is represented as a list. 
                (nCols, nRows) is the detector partition and nAngles is the angular (view) partition. 
         
         """
         if isinstance(x, list):
             assert isinstance(self.ray_transform, list) and len(x) == len(self.ray_transform), "Input must be a list of tensors when the ray transform is a list."
-            assert not hasattr(self, 'time_bin'), "Time bin specific ray transform should not be set when input is a list."
             return [rt(xi) for xi, rt in zip(x, self.ray_transform)]
-        elif isinstance(x, torch.Tensor) and hasattr(self, 'time_bin'):
-                assert isinstance(self.ray_transform, list), "Time bin specific ray transform should be set when input is a torch.Tensor and time_bin is specified."
-                return self.ray_transform[self.time_bin](x)
-        elif isinstance(x, torch.Tensor) and isinstance(self.ray_transform, OperatorModule):
+        elif isinstance(x, torch.Tensor) and isinstance(self.ray_transform, torch.nn.Module):
             return self.ray_transform(x)
         else:
             raise ValueError("Input must be a list of tensors or a torch.Tensor compatible with the ray transform.")
@@ -385,10 +490,7 @@ class RayTransform:
         if isinstance(y, list):
             assert isinstance(self.ray_transform_adjoint, list) and len(y) == len(self.ray_transform_adjoint), "Input must be a list of tensors when the ray transform adjoint is a list."
             return [rt_adj(yi) for yi, rt_adj in zip(y, self.ray_transform_adjoint)]
-        elif isinstance(y, torch.Tensor) and hasattr(self, 'time_bin'):
-            assert isinstance(self.ray_transform_adjoint, list), "Time bin specific ray transform adjoint should be set when input is a torch.Tensor and time_bin is specified."
-            return self.ray_transform_adjoint[self.time_bin](y)
-        elif isinstance(y, torch.Tensor) and isinstance(self.ray_transform_adjoint, OperatorModule):
+        elif isinstance(y, torch.Tensor) and isinstance(self.ray_transform_adjoint, torch.nn.Module):
             return self.ray_transform_adjoint(y)
         else:
             raise ValueError("Input must be a list of tensors or a torch.Tensor compatible with the ray transform adjoint.")
@@ -406,13 +508,25 @@ class RayTransform:
         if isinstance(y, list):
             assert isinstance(self.fbp_operator, list) and len(y) == len(self.fbp_operator), "Input must be a list of tensors when the FBP operator is a list."
             return [fbp(yi) for yi, fbp in zip(y, self.fbp_operator)]
-        elif isinstance(y, torch.Tensor) and hasattr(self, 'time_bin'):
-            assert isinstance(self.fbp_operator, list), "Time bin specific FBP operator should be set when input is a torch.Tensor and time_bin is specified."
-            return self.fbp_operator[self.time_bin](y)
         elif isinstance(y, torch.Tensor) and isinstance(self.fbp_operator, OperatorModule):
             return self.fbp_operator(y)
         else:
             raise ValueError("Input must be a list of tensors or a torch.Tensor compatible with the FBP operator.")
+
+    def forward_bin(self, x: torch.Tensor, t: int) -> torch.Tensor:
+        """Applies the ray transform of time bin t to a single 3D volume B x D x H x W."""
+        assert isinstance(self.ray_transform, list), "A time dependent ray transform must be initialized to use time bin specific operators."
+        return self.ray_transform[t](x)
+
+    def adjoint_bin(self, y: torch.Tensor, t: int) -> torch.Tensor:
+        """Applies the adjoint ray transform of time bin t to projection data B x nAngles x nCol x nRow."""
+        assert isinstance(self.ray_transform_adjoint, list), "A time dependent ray transform adjoint must be initialized to use time bin specific operators."
+        return self.ray_transform_adjoint[t](y)
+
+    def fbp_bin(self, y: torch.Tensor, t: int) -> torch.Tensor:
+        """Applies the FBP operator of time bin t to projection data B x nAngles x nCol x nRow."""
+        assert isinstance(self.fbp_operator, list), "A time dependent FBP operator must be initialized to use time bin specific operators."
+        return self.fbp_operator[t](y)
 
     @overload
     def add_poisson_noise(self, y: torch.Tensor, flux: float | None = None, epsilon: float = 1e-6) -> torch.Tensor: ...
@@ -431,6 +545,33 @@ class RayTransform:
         """
         n0 = photon_count(self.Flux if flux is None else flux, self.nViews, self.nDetectorCols, self.nDetectorRows)
         return add_poisson_noise(y, n0=n0, epsilon=epsilon)
+
+
+def operator_norm(
+        forward: Callable[[torch.Tensor], torch.Tensor],
+        adjoint: Callable[[torch.Tensor], torch.Tensor],
+        shape: tuple[int, ...],                         # domain shape, including the batch dimension
+        max_iters: int = 20,
+        rtol: float = 1e-3,                             # stop when the estimate changes less than this, relative
+        device: torch.device = torch.device("cpu"),
+        seed: int = 0,
+        ) -> float:
+    """Estimates the operator norm ||A|| by power iteration on A^* A, e.g. for the ray transform of one time bin with
+    forward = lambda x: ray_trafo.forward_bin(x, t). Uses its own generator, so that it does not consume the global RNG."""
+    generator = torch.Generator().manual_seed(seed)
+    u = torch.rand(shape, generator=generator).to(device)
+    u = u / u.norm()
+    norm_sq = 0.0
+    with torch.no_grad():
+        for _ in range(max_iters):
+            w = adjoint(forward(u))
+            new_norm_sq = w.norm().item()               # ||A^* A u|| with ||u|| = 1, converges to ||A||^2 from below
+            u = w / new_norm_sq
+            converged = abs(new_norm_sq - norm_sq) <= rtol * new_norm_sq
+            norm_sq = new_norm_sq
+            if converged:
+                break
+    return norm_sq ** 0.5
 
 
 def photon_count(flux: float, nViews: int, nDetectorCols: int, nDetectorRows: int | None = None) -> float:
@@ -466,5 +607,12 @@ def add_poisson_noise(y, n0: float, epsilon: float = 1e-6) -> torch.Tensor | lis
     if isinstance(y, list):
         return [add_poisson_noise(yi, n0=n0, epsilon=epsilon) for yi in y]
 
+
+    # clamp y to remove negative values that could lead to invalid photon counts
+    if torch.any(y < 0):
+        print(f"Warning: {100 * torch.sum(y < 0) / y.numel():.2f}% negative values in y detected. Clamping to 0.")
+        y = torch.clamp(y, min=0.0)
+
+    
     noisy_counts = torch.poisson(n0 * torch.exp(-y))
     return -torch.log((noisy_counts + epsilon) / n0)

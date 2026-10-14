@@ -11,7 +11,7 @@ This repo implements a pipeline for training deep learning models that jointly r
 | `data/` | The data pipeline: quality triage, patient-grouped split, preprocessing, projection simulation and the quality loader (see [`data/README.md`](data/README.md)) |
 | `tracking/` | Run bookkeeping: config, git commit, environment and results of each simulation (and later training) run |
 | `operators/` | Physics/math operators: CT ray transform (ODL/ASTRA) and LDDMM diffeomorphic registration operators |
-| `model/` | The HLPD reconstruction+registration network and its loss/quality-measure functions |
+| `model/` | The HLPD reconstruction+registration network and its loss/quality-measure functions (training speed and memory: [`model/PERFORMANCE.md`](model/PERFORMANCE.md)) |
 | `train/` | Training and evaluation entry points (single-GPU and multi-GPU) |
 | `visualization/` | Static/dynamic (GIF) volume visualization and a Streamlit checkpoint viewer |
 | `test/` | pytest suite for the operators, deformation, registration, data pipeline and run tracking |
