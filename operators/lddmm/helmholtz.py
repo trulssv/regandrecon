@@ -112,7 +112,9 @@ class HelmholtzOperator(nn.Module):
         spatial_shape = v.shape[1:-1]
     
         Kgrid = self.compute_frequency_grid(shape=spatial_shape, device=v.device) # Computes a 2D or 3D frequency grid depending on the spatial dimensions with with adjusted spacing based on the extent.
-        KSquaredgrid = (torch.sum(torch.stack([K**2 for K in Kgrid], dim=0), dim=0)).unsqueeze(0).unsqueeze(0).unsqueeze(-1) # Shape: (1, 1, D, H, W, 1) for 3D or (1, 1, H, W, 1) for 2D
+        # NOTE: a single leading singleton dim for the batch, so that the grid broadcasts against v_fft (B, *spatial, C). An additional one
+        # made the product (1, B, *spatial, C), and the inverse transform below then ran over the batch and the first spatial dims.
+        KSquaredgrid = (torch.sum(torch.stack([K**2 for K in Kgrid], dim=0), dim=0)).unsqueeze(0).unsqueeze(-1) # Shape: (1, D, H, W//2+1, 1) for 3D or (1, H, W//2+1, 1) for 2D
 
  
         # Compute the squared magnitude of the frequency grid
@@ -129,6 +131,6 @@ class HelmholtzOperator(nn.Module):
             return v_reg_fft 
 
         # Compute the inverse Fourier transform to get the regularized velocity field in the spatial domain
-        v_reg = irfftn(v_reg_fft, dim=tuple(range(1, 1 + self.dim)))
+        v_reg = irfftn(v_reg_fft, s=spatial_shape, dim=tuple(range(1, 1 + self.dim)))  # s, as the size of the halved last dim is ambiguous
         
         return v_reg

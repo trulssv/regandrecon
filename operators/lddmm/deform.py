@@ -1,9 +1,52 @@
 from os import stat
 
+import interpol
 import torch
 from torch.nn.functional import grid_sample, pad
-from typing import overload, Tuple
+from typing import Sequence, overload, Tuple
 from itertools import chain
+
+
+BACKENDS = ("grid_sample", "grid_pull")
+
+
+def _to_voxel(phi: torch.Tensor, sizes: Sequence[int]) -> torch.Tensor:
+    """A deformation in grid_sample's convention (normalized to [-1, 1] with align_corners=True, channels (x, y[, z])) in the convention
+    of grid_pull: voxel coordinates of an image with spatial dims `sizes`, channels in the order of the spatial dims ((d,) h, w)."""
+    C = phi.shape[-1]
+    return torch.stack([(phi[..., C - 1 - i] + 1) / 2 * (sizes[i] - 1) for i in range(C)], dim=-1)
+
+
+def resample(x: torch.Tensor, phi: torch.Tensor, backend: str = "grid_sample", order: int | Sequence[int] = 1, padding: str = "zeros") -> torch.Tensor:
+    r"""Samples the image x (B, C, *spatial) at the points phi (B, *spatial_out, ndim), given in grid_sample's convention, i.e. computes
+    x \circ phi with shape (B, C, *spatial_out).
+
+    backend:
+        grid_sample: torch's (bi/tri)linear interpolation. Fast, but smooths the image every time it is resampled, see
+                     test/test_warp_benchmark.py.
+        grid_pull:   torch-interpol's B-spline interpolation of the given order (an int, or one per spatial dim in the order (D,) H, W, e.g.
+                     [3, 1, 1] for cubic along the coarse slice axis only). The image is prefiltered, so it is interpolated rather than
+                     smoothed. Order 1 is the same interpolation as grid_sample, only slower.
+    padding:
+        zeros:  x is zero outside the field of view.
+        border: x is extended by its boundary values.
+    """
+    assert backend in BACKENDS, f"Unsupported interpolation backend: {backend}. Supported backends are {BACKENDS}."
+    assert padding in ("zeros", "border"), f"Unsupported padding: {padding}. Supported paddings are 'zeros' and 'border'."
+
+    if backend == "grid_sample":
+        return grid_sample(x, phi, align_corners=True, mode="bilinear", padding_mode=padding)
+
+    sizes = x.shape[2:]
+    grid = _to_voxel(phi, sizes)
+    if padding == "border":
+        # NOTE: clamping the sampling points to the field of view is exactly border padding, for any order and bound.
+        grid = torch.stack([grid[..., i].clamp(0, s - 1) for i, s in enumerate(sizes)], dim=-1)
+    # NOTE: a list of orders is in the order of the spatial dims of x, i.e. ((D,) H, W), despite grid_pull's docstring saying [W, H, D].
+    # bound="dct2" mirrors the image in the spline prefilter, which avoids the damping of the edges that bound="zero" causes, and
+    # extrapolate=False then sets the image to zero outside the field of view.
+    orders = [order] * len(sizes) if isinstance(order, int) else list(order)
+    return interpol.grid_pull(x, grid, interpolation=orders, bound="dct2", extrapolate=False, prefilter=max(orders) > 1)  # type: ignore
 
 
 class GroupAction(torch.nn.Module):
@@ -14,14 +57,18 @@ class GroupAction(torch.nn.Module):
 
     # TODO: implement mass preserving action as well, which is defined as $\\mathcal{V}_{\phi} x = (x \circ \phi^{-1}) |D\phi^{-1}|$, where $|D\phi^{-1}|$ is the Jacobian determinant of the inverse deformation field.
 
-    def __init__(self, action: str = "geometric", device: torch.device = torch.device("cpu")):
+    def __init__(self, action: str = "geometric", device: torch.device = torch.device("cpu"), backend: str = "grid_sample", order: int | Sequence[int] = 3):
+        """backend and order select the interpolation of the deformed image, see resample."""
         super().__init__()
 
         # Get identity grid for the given space
 
         assert action in ("geometric", "mass_preserving"), f"Unsupported action type: {action}. Supported types are 'geometric' and 'mass_preserving'."
+        assert backend in BACKENDS, f"Unsupported interpolation backend: {backend}. Supported backends are {BACKENDS}."
 
         self.action = action
+        self.backend = backend
+        self.order = order
         self.device = device
         self.to(self.device)
 
@@ -95,14 +142,13 @@ class GroupAction(torch.nn.Module):
         # Here we would implement the actual deformation logic using the velocity field.
         # This typically involves integrating the velocity field to obtain the deformation and then applying it to the image.
 
-        # TODO: This implementation is basedon pytorch grid_sample function which uses bilinears interpolation. 
-        # However, we are working with anisotropic volumes, so perhaps we should implement our own interpolation scheme that takes into account the anisotropy of the volumes. 
-        # This is something to consider for future work, but for now we can use the grid_sample function as a starting point.
+        # NOTE: bilinear grid_sample visibly blurs the deformed volumes, the B-splines of grid_pull much less so (see test/test_warp_benchmark.py).
+        # With anisotropic volumes, an order per axis, e.g. [3, 1, 1], can restrict the more expensive cubic interpolation to the coarse slice axis.
 
         # NOTE: It is assumed phi already is normalized to the range [-1, 1] based on the dimensions of the input image. This should be taken care of in the FlowDeformationOperator class, 
         # which normalizes the velocity field before passing it to the GroupAction class.
 
-        deformed = grid_sample(x, phi, align_corners=True, mode="bilinear", padding_mode="zeros")
+        deformed = resample(x, phi, backend=self.backend, order=self.order, padding="zeros")
  
         return deformed
 
@@ -173,11 +219,17 @@ class VelocityIntegrator(torch.nn.Module):
             N: int,                                                 # Number of integration steps for the velocity field
             integration:str="scaling_and_squaring",                 # Integration method for the velocity field
             shape: tuple | None = None,                             # Shape of the input image, used to create the identity grid
-            device: torch.device = torch.device("cpu")              # Device on which computations will be performed
+            device: torch.device = torch.device("cpu"),             # Device on which computations will be performed
+            backend: str = "grid_sample",                           # Interpolation used when composing deformations, see resample
+            order: int | Sequence[int] = 3,                         # Spline order(s) of the grid_pull backend
             )->None:
         super().__init__()
 
         assert integration in ["scaling_and_squaring", "euler"], f"Unsupported integration method: {integration}. Supported methods are 'scaling_and_squaring' and 'euler'."
+        assert backend in BACKENDS, f"Unsupported interpolation backend: {backend}. Supported backends are {BACKENDS}."
+
+        self.backend = backend
+        self.order = order
 
         if shape is None:
             print(f"Warning: no value for the shape of the input image was provided for the class {self.__class__.__name__}. The shape is inferred from the input image during the forward pass...\n")
@@ -217,19 +269,21 @@ class VelocityIntegrator(torch.nn.Module):
             torch.Tensor: The composed deformation field $\$
         
         """
-        # Here we would implement the logic for composing two deformations, which is necessary for the LDDMM framework.
+        C = phi.shape[-1]
+        assert C == phi.dim() - 2, f"Expected deformation to have {phi.dim() - 2} channels for a {phi.dim() - 2}D deformation, but got {C} channels."
+        to_channels_first = (0, phi.dim() - 1, *range(1, phi.dim() - 1))
+        to_channels_last = (0, *range(2, phi.dim()), 1)
 
-        if phi.dim() == 5:
-            B, D, H, W, C = phi.shape
-            assert C == 3, f"Expected deformation to have 3 channels for 3D deformation, but got {C} channels."
-            composed = grid_sample(phi.permute(0, 4, 1, 2, 3), psi, align_corners=True, mode="bilinear", padding_mode="border").permute(0, 2, 3, 4, 1)  # Compute the composition using grid_sample
+        if self.backend == "grid_sample":
+            return resample(phi.permute(*to_channels_first), psi, backend="grid_sample", padding="border").permute(*to_channels_last)
 
-        else:
-            B, H, W, C = phi.shape
-            assert C == 2, f"Expected deformation to have 2 channels for 2D deformation, but got {C} channels."
-            composed = grid_sample(phi.permute(0, 3, 1, 2), psi, align_corners=True, mode="bilinear", padding_mode="border").permute(0, 2, 3, 1)  # Compute the composition using grid_sample
-
-        return composed
+        # NOTE: grid_pull resamples the displacement u = phi - id rather than phi itself, i.e. phi o psi = psi + u o psi: a spline with a
+        # boundary condition does not reproduce the linear identity part of phi near the edges of the domain, whereas linear interpolation
+        # (grid_sample) does. This is the same as resampling phi in the interior, and extends phi by translations rather than by a constant
+        # outside the domain.
+        assert self.id is not None, "Identity grid (self.id) must be initialized."
+        u = (phi - self.id).permute(*to_channels_first)
+        return psi + resample(u, psi, backend="grid_pull", order=self.order, padding="border").permute(*to_channels_last)
     
     def _square(self, phi: torch.Tensor)->torch.Tensor:
         """Compose the deformations phi with itself"""
@@ -303,16 +357,17 @@ class VelocityIntegrator(torch.nn.Module):
 
         phi = self.id - v  # Initial deformation is the identity grid minus the velocity field at time step t
 
-        if superres: # Return all intermediate deformation fields
-            phi_list = [phi.clone()]
+        # NOTE: v was scaled by 1/2^N, so it takes N squarings (not N-1) to integrate the full velocity field.
+        if superres: # Return all intermediate deformation fields, the k-th integrating v over the time fraction 2^(k-N), k = 1, ..., N
+            phi_list = []
 
-            for _ in range(N-1):
+            for _ in range(N):
                 phi = self._square(phi)
                 phi_list.append(phi.clone())
 
             return phi_list
 
-        for _ in range(N-1):
+        for _ in range(N):
             phi = self._square(phi)  # Square the deformation N times to obtain the final deformation
         return phi
 
@@ -411,7 +466,8 @@ class FlowDeformationOperator(torch.nn.Module):
     """This class implements the flow deformation operator, which takes as input a time dependent velocity field and a template, and outputs a deformed sequence of images. 
     This is implemented by first integrating the velocity field to obtain the deformation field, and then applying the group action to deform the image using the obtained deformation field."""
 
-    def __init__(self, N: int| None=None, action: str="geometric", integration: str="scaling_and_squaring", shape: Tuple[int, ...] | None = None, extent: Tuple[float, ...] | None = None, device: torch.device = torch.device("cpu")):
+    def __init__(self, N: int| None=None, action: str="geometric", integration: str="scaling_and_squaring", shape: Tuple[int, ...] | None = None, extent: Tuple[float, ...] | None = None, device: torch.device = torch.device("cpu"),
+                 backend: str = "grid_sample", integrator_backend: str = "grid_sample", order: int | Sequence[int] = 3):
         """
         Initialize the flow deformation operator.
 
@@ -421,6 +477,9 @@ class FlowDeformationOperator(torch.nn.Module):
         - shape: Shape of the input image (tuple of ints).
         - extent: Physical extent of the input image (tuple of floats).
         - device: Torch device to use.
+        - backend: Interpolation of the deformed image in the group action, "grid_sample" (linear) or "grid_pull" (B-splines), see resample.
+        - integrator_backend: Interpolation used when composing deformations in the velocity integrator.
+        - order: Spline order(s) of the grid_pull backend, an int or one per spatial dim ((D,) H, W). Ignored by grid_sample.
         """
         super().__init__() 
 
@@ -429,12 +488,15 @@ class FlowDeformationOperator(torch.nn.Module):
             N = 10  # Default number of integration steps for the velocity field
 
 
-        self.velocity_integrator = VelocityIntegrator(N, integration, shape, device)  # Velocity integrator for integrating the velocity field to obtain the deformation field
-        self.group_action = GroupAction(action, device)  # Group action for applying the deformation to the image
+        self.velocity_integrator = VelocityIntegrator(N, integration, shape, device, backend=integrator_backend, order=order)  # Velocity integrator for integrating the velocity field to obtain the deformation field
+        self.group_action = GroupAction(action, device, backend=backend, order=order)  # Group action for applying the deformation to the image
         self.N = N  # Store the number of integration steps
 
         self.action = action  # Store the type of group action to apply
         self.integration = integration  # Store the integration method for the velocity field
+        self.backend = backend
+        self.integrator_backend = integrator_backend
+        self.order = order
 
         self.shape = shape
         self.extent = extent

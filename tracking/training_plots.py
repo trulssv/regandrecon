@@ -116,12 +116,15 @@ def plot_step_times(history: list[dict[str, float]], path: Path) -> None:
 
 
 def plot_losses(history: list[dict[str, float]], path: Path, zero_prediction_mse: float | None = None, val_history: list[dict[str, float]] | None = None) -> None:
-    """The losses (log scale) and the image domain error of the deformed sequence over the training steps. val_history, if given,
-    holds the validation metrics (same keys, with the step they were computed at) and is drawn as markers on top."""
+    """The losses (log scale) and the image domain errors of the reconstructions f (image_mse) and of their predictions w by the motion
+    (warp_mse) over the training steps. Loss terms and errors missing from the history are skipped. val_history, if given, holds the
+    validation metrics (same keys, with the step they were computed at) and is drawn as markers on top."""
     steps = [h["step"] for h in history]
     fig, (ax_loss, ax_mse) = plt.subplots(1, 2, figsize=(12, 4))
-    for key, color in (("total_loss", "k"), ("data_loss", FORWARD_COLOR), ("regularization_loss", BACKWARD_COLOR)):
-        ax_loss.plot(steps, [h[key] for h in history], color=color, lw=1, label=key + (" (unweighted)" if key == "regularization_loss" else ""))
+    for key, color in (("total_loss", "k"), ("data_loss", FORWARD_COLOR), ("coupling_loss", OTHER_COLOR), ("regularization_loss", BACKWARD_COLOR)):
+        if key not in history[-1]:
+            continue
+        ax_loss.plot(steps, [h[key] for h in history], color=color, lw=1, label=key + (" (unweighted)" if key in ("coupling_loss", "regularization_loss") else ""))
         if val_history:
             ax_loss.plot([h["step"] for h in val_history], [h[key] for h in val_history], color=color, ls="none", marker="o", ms=4, mfc="white")
     if val_history:
@@ -131,9 +134,14 @@ def plot_losses(history: list[dict[str, float]], path: Path, zero_prediction_mse
     ax_loss.set_title("Loss", fontsize=10)
     ax_loss.legend(fontsize=8, frameon=False)
 
-    ax_mse.plot(steps, [h["image_mse"] for h in history], color=FORWARD_COLOR, lw=1, label="image mse of deformed sequence")
+    for key, color, label in (("image_mse", FORWARD_COLOR, "reconstruction f"), ("warp_mse", BACKWARD_COLOR, "prediction w by the motion")):
+        if key not in history[-1]:
+            continue
+        ax_mse.plot(steps, [h[key] for h in history], color=color, lw=1, label=label)
+        if val_history:
+            ax_mse.plot([h["step"] for h in val_history], [h[key] for h in val_history], color=color, ls="none", marker="o", ms=4, mfc="white")
     if val_history:
-        ax_mse.plot([h["step"] for h in val_history], [h["image_mse"] for h in val_history], color=FORWARD_COLOR, ls="none", marker="o", ms=4, mfc="white", label="validation")
+        ax_mse.plot([], [], color="k", ls="none", marker="o", ms=4, mfc="white", label="validation")
     if zero_prediction_mse is not None:
         ax_mse.axhline(zero_prediction_mse, color=OTHER_COLOR, ls="--", lw=0.8, label="zero prediction")
     ax_mse.set_yscale("log")
@@ -162,14 +170,17 @@ def plot_prediction_gif(
     path: Path,
     step: int,
     fps: int = 3,
+    x_warped: list[torch.Tensor] | None = None,
 ) -> None:
-    """GIF over the time bins of the ground truth, the deformed reconstruction and the velocity field, in the axial, coronal and
-    sagittal mid planes (first batch element). x_pred and x_true are T tensors (B, D, H, W) and v is T tensors (B, D, H, W, 3) with
+    """GIF over the time bins of the ground truth, the reconstruction, (if given) its prediction by the motion and the velocity field,
+    in the axial, coronal and sagittal mid planes (first batch element). x_pred, x_true and x_warped are T tensors (B, D, H, W) and v
+    is T tensors (B, D, H, W, 3) with
     grid_sample's (x, y, z) = (W, H, D) channel order, see FlowDeformationOperator. The velocity is shown as RGB = (x, y, z), mapped
     symmetrically around gray (zero velocity) with a common scale for all time bins."""
     planes = list(PLANES)
     true = [xt[0].detach().float().cpu().numpy() for xt in x_true]
     pred = [xp[0].detach().float().cpu().numpy().reshape(true[0].shape) for xp in x_pred]
+    warped = [xw[0].detach().float().cpu().numpy().reshape(true[0].shape) for xw in x_warped] if x_warped is not None else None
     vel = [vt[0].detach().float().cpu().numpy() for vt in v]
 
     vmin, vmax = min(t.min() for t in true), max(t.max() for t in true)
@@ -178,7 +189,10 @@ def plot_prediction_gif(
     def rgb(vt: np.ndarray, plane: str) -> np.ndarray:
         return np.clip(0.5 + 0.5 * _mid_slice(vt, plane) / v_scale, 0.0, 1.0)
 
-    rows = [("ground truth", lambda t, p: _mid_slice(true[t], p)), ("prediction", lambda t, p: _mid_slice(pred[t], p)), ("velocity", lambda t, p: rgb(vel[t], p))]
+    rows = [("ground truth", lambda t, p: _mid_slice(true[t], p)), ("reconstruction", lambda t, p: _mid_slice(pred[t], p))]
+    if warped is not None:
+        rows.append(("motion prediction", lambda t, p: _mid_slice(warped[t], p)))
+    rows.append(("velocity", lambda t, p: rgb(vel[t], p)))
     fig, axes = plt.subplots(len(rows), len(planes), figsize=(3.5 * len(planes), 3.0 * len(rows)), dpi=100, squeeze=False)
     # NOTE: the figure size must be a whole number of pixels (3.4 inch * 3 * 100 dpi rounds down to 1019 pixels), and the layout fixed,
     # otherwise PillowWriter reads the frames with the wrong row stride and renders them sheared.

@@ -1,5 +1,5 @@
 """
-Builds the HLPD model and its LDDMM loss from a config, shared by the training scripts (train/train.py, test/train_hlpd_overfit.py).
+Builds the HLPD model and its loss (model/hlpd_loss.py) from a config, shared by the training scripts (train/train.py, test/train_hlpd_overfit.py).
 
 The config holds the architecture and loss parameters, as dicts of the dataclasses in model/hlpd.py and LossParams below:
     {"unrolled": {...}, "block": {...}, "conv_stack": {...}, "deform": {...}, "normalization": {...}, "loss": {...}, "zero_init": bool}
@@ -14,8 +14,8 @@ from pathlib import Path
 import torch
 
 from model.hlpd import ConvStackParams, DeformParams, HLPDBlockParams, HLPDModel, HLPDUnrolledParams, NormalizationParams, RayTrafoParams
+from model.hlpd_loss import HLPDLoss
 from operators.lddmm.helmholtz import HelmholtzOperator
-from operators.lddmm.lddmm_loss import LDDMMloss
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +41,7 @@ def configure_cuda(exact_fp32: bool = False) -> None:
 @dataclass
 class LossParams:
     domain: str = "image"                                               # "image" (supervised, needs volumes) or "projection" (unsupervised)
+    lambda_coupling: float = 1.0                                        # weight of the coupling ||w_t - f_t||^2 of the reconstructions and their predictions by the motion
     lambda_reg: float = 1e-6                                            # weight of the Helmholtz regularization of the velocity fields
     helmholtz: tuple[float, float, float] = (1.0, 1.0, 1.0)             # (alpha, gamma, beta) of the Helmholtz operator
 
@@ -88,8 +89,8 @@ def simulation_mu_water(data_root: Path) -> float:
         return float(json.load(f)["config"]["preprocess"]["mu_wa_mm"])
 
 
-def build_hlpd(config: HLPDConfig, ray_trafo_params: RayTrafoParams, T: int, shape: tuple[int, int, int], device: torch.device, mu_water: float | None = None) -> tuple[HLPDModel, LDDMMloss]:
-    """The HLPD model and its LDDMM loss. Call set_geometry for each study before the forward pass. mu_water (see simulation_mu_water)
+def build_hlpd(config: HLPDConfig, ray_trafo_params: RayTrafoParams, T: int, shape: tuple[int, int, int], device: torch.device, mu_water: float | None = None) -> tuple[HLPDModel, HLPDLoss]:
+    """The HLPD model and its loss. Call set_geometry for each study before the forward pass. mu_water (see simulation_mu_water)
     is needed for the 'water' intensity mode."""
     config.block.time_steps = T
     model = HLPDModel(config.unrolled, config.block, config.conv_stack, ray_trafo_params, config.deform, T=T, shape=shape,
@@ -98,12 +99,12 @@ def build_hlpd(config: HLPDConfig, ray_trafo_params: RayTrafoParams, T: int, sha
     # NOTE: the extent of the Helmholtz operator is set per study in set_geometry.
     alpha, gamma, beta = config.loss.helmholtz
     helmholtz_op = HelmholtzOperator(dim=3, alpha=alpha, gamma=gamma, beta=beta, extent=None, device=device)
-    forward_op = model.ray_trafo if config.loss.domain == "projection" else None
-    loss = LDDMMloss(flow_deform_op=model.deform, helmholtz_op=helmholtz_op, lambda_reg=config.loss.lambda_reg, forward_op=forward_op, device=device)
+    # NOTE: the loss shares the model's units, so that it is computed with the same normalization as the iterations.
+    loss = HLPDLoss(helmholtz_op, model.units, domain=config.loss.domain, lambda_coupling=config.loss.lambda_coupling, lambda_reg=config.loss.lambda_reg)
     return model, loss
 
 
-def set_geometry(model: HLPDModel, loss: LDDMMloss, meta: dict) -> None:
+def set_geometry(model: HLPDModel, loss: HLPDLoss, meta: dict) -> None:
     """Sets the geometry of a study (its physical extent and time steps) in the model's operators and the loss. The ray transforms of
     recently used geometries are cached (see RayTransform._init_ray_transform), so this is cheap when consecutive studies share a geometry."""
     model.set_geometry(meta)

@@ -160,6 +160,19 @@ def test_dataset_reads_pipeline_output(tmp_path):
     assert len(loader.dataset) == 1
     assert batch["study_id"] == ["1_P1_study_0"]
     assert len(batch["volume"]) == 10 and batch["volume"][0].shape == (1, 3, 3, 3)
+    assert "fbp" not in batch  # only loaded when asked for
+
+    # The FBP is loaded on request, and a missing one (a study simulated before the FBPs were stored) says how to add it.
+    with pytest.raises(FileNotFoundError, match="rerunning the pipeline"):
+        next(iter(get_quality_loader(["high"], "train", data_root=tmp_path, load_fbp=True)))
+    fbp = torch.rand(10, 3, 3, 3)
+    torch.save(fbp, study_dir / "fbp.pt")
+    batch = next(iter(get_quality_loader(["high"], "train", data_root=tmp_path, load_fbp=True)))
+    assert len(batch["fbp"]) == 10 and torch.equal(batch["fbp"][4][0], fbp[4])
+
+    # The stored FBP is of the stored sinogram, so it cannot be combined with extra noise.
+    with pytest.raises(AssertionError):
+        RegAndReconDataset(["high"], "train", data_root=tmp_path, load_fbp=True, noise=lambda y: y)
 
 
 def test_raw_dataset_is_lazy(tmp_path):
@@ -237,6 +250,10 @@ def test_pipeline_end_to_end(tiny_pipeline):
         assert meta["resampled_slice_thickness"] * 4 == pytest.approx(18.0)
         assert torch.load(study_dir / "volume.pt").shape == (2, 4, 10, 10)
         assert torch.load(study_dir / "sinogram.pt").shape == (2, 6, 24, 8)  # (T, views, cols, rows)
+        fbp = torch.load(study_dir / "fbp.pt")
+        assert fbp.shape == (2, 4, 10, 10) and torch.isfinite(fbp).all()
+        # the FBP of the stored (noisy) sinogram, so that it matches the data the model sees
+        torch.testing.assert_close(fbp, pipeline.study_fbp(torch.load(study_dir / "sinogram.pt"), meta, TINY_RAY_CFG))
 
     # The quality loader reads the output
     split = splits["studies"]["0_P0_study_0"]["split"]
@@ -251,7 +268,18 @@ def test_pipeline_resumes_and_pins_config(tiny_pipeline):
 
     first, second = [json.loads(line) for line in (out_root / "runs.jsonl").read_text().splitlines()]
     assert len(first["results"]["simulated"]) == 3
-    assert second["results"]["simulated"] == [] and len(second["results"]["skipped"]) == 3
+    assert second["results"]["simulated"] == [] and len(second["results"]["skipped"]) == 3 and second["results"]["fbp_added"] == []
+
+    # A study simulated before the FBPs were stored gets its FBP from the stored sinogram, without being resimulated.
+    study_dir = sorted(out_root.glob("high/*/*"))[0]
+    fbp, sinogram = torch.load(study_dir / "fbp.pt"), torch.load(study_dir / "sinogram.pt")
+    (study_dir / "fbp.pt").unlink()
+    data_pipeline(qualities=("high",), out_root=out_root, quality_assessment_path=qa_path)
+    third = json.loads((out_root / "runs.jsonl").read_text().splitlines()[-1])
+    assert third["results"]["simulated"] == [] and third["results"]["fbp_added"] == [study_dir.name]
+    assert torch.equal(torch.load(study_dir / "sinogram.pt"), sinogram)
+    torch.testing.assert_close(torch.load(study_dir / "fbp.pt"), fbp)
+    assert not list(study_dir.glob("*.tmp"))
 
     tiny_pipeline["ray_path"].write_text(json.dumps({**TINY_RAY_CFG, "nViews": 12}))
     with pytest.raises(ConfigMismatchError):
@@ -269,3 +297,6 @@ def test_real_quality_loader():
     assert len(batch["sinogram"]) == meta["n_time_bins"]
     assert batch["volume"][0].shape == (1, *meta["shape"])
     assert all(torch.isfinite(y).all() for y in batch["sinogram"])
+    if all((d / "fbp.pt").exists() for d in loader.dataset.study_dirs):  # type: ignore[attr-defined]
+        batch = next(iter(get_quality_loader(["high", "medium"], "train", batch_size=1, load_fbp=True)))
+        assert batch["fbp"][0].shape == (1, *batch["meta"][0]["shape"])

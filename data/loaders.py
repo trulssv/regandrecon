@@ -174,8 +174,10 @@ class RegAndReconDataset(Dataset):
         "meta": the study's meta data (scan info, extent, time steps, ...),
         "study_id": the study id,
         "volume": (T, D, H, W) attenuation values in mm^-1, only if load_volume is set.
+        "fbp": (T, D, H, W) the FBP of each time bin's sinogram in mm^-1, only if load_fbp is set (e.g. for the FBP initialization of HLPD).
     """
-    def __init__(self, qualities: list[str], mode: str, data_root: Path = DEFAULT_SIMULATED_ROOT, load_volume: bool = False, noise: Callable[[torch.Tensor], torch.Tensor] | None = None)->None:
+    def __init__(self, qualities: list[str], mode: str, data_root: Path = DEFAULT_SIMULATED_ROOT, load_volume: bool = False, noise: Callable[[torch.Tensor], torch.Tensor] | None = None,
+                 load_fbp: bool = False)->None:
         super().__init__()
         assert mode in ["train", "val", "test"], f"Invalid mode {mode}. Expected one of ['train', 'val', 'test']."
         assert all(q in ["high", "low", "medium"] for q in qualities), f"Invalid quality in {qualities}. Expected all qualities to be one of ['high', 'low', 'medium']."
@@ -185,6 +187,9 @@ class RegAndReconDataset(Dataset):
         self.data_root = data_root
         self.load_volume = load_volume
         self.noise = noise
+        self.load_fbp = load_fbp
+        # NOTE: the stored FBP is of the stored (already noisy) sinogram, so it would not match a sinogram with extra noise.
+        assert not (load_fbp and noise is not None), "The stored FBP does not match a sinogram with added noise, so load_fbp and noise cannot be combined."
 
         # Only studies that the data pipeline has finished are included.
         self.study_dirs = sorted(d for q in qualities for d in (data_root / q / mode).glob("*/") if (d / "done").exists())
@@ -205,6 +210,12 @@ class RegAndReconDataset(Dataset):
         item = {"sinogram": sinogram, "meta": meta, "study_id": meta["study_id"]}
         if self.load_volume:
             item["volume"] = torch.load(study_dir / "volume.pt", map_location="cpu")
+        if self.load_fbp:
+            fbp_path = study_dir / "fbp.pt"
+            if not fbp_path.exists():
+                raise FileNotFoundError(f"{fbp_path} does not exist. Studies simulated before the pipeline stored FBPs get them by rerunning "
+                                        "the pipeline (data/scripts/simulate.sh), which adds them without resimulating.")
+            item["fbp"] = torch.load(fbp_path, map_location="cpu")
         return item
 
 
@@ -215,7 +226,7 @@ def collate_time_list(batch: list[dict]) -> dict:
     NOTE: Each study carries its own physical extent (meta["extent"]). All studies currently share the same extent, so a single ray transform
     serves the whole batch. TODO: check or enforce equal extents within a batch if studies with other extents are added."""
     collated = {"meta": [item["meta"] for item in batch], "study_id": [item["study_id"] for item in batch]}
-    for key in ("sinogram", "volume"):
+    for key in ("sinogram", "volume", "fbp"):
         if key in batch[0]:
             collated[key] = list(torch.stack([item[key] for item in batch]).unbind(1))  # (B, T, ...) -> T x (B, ...)
     return collated
@@ -230,9 +241,10 @@ def get_quality_loader(
         load_volume: bool = False,
         noise: Callable[[torch.Tensor], torch.Tensor] | None = None,
         data_root: Path = DEFAULT_SIMULATED_ROOT,
+        load_fbp: bool = False,
         ) -> DataLoader:
     """Returns a DataLoader over RegAndReconDataset that yields batches in the format of collate_time_list. Shuffles by default only in training mode."""
-    dataset = RegAndReconDataset(qualities=qualities, mode=mode, data_root=data_root, load_volume=load_volume, noise=noise)
+    dataset = RegAndReconDataset(qualities=qualities, mode=mode, data_root=data_root, load_volume=load_volume, noise=noise, load_fbp=load_fbp)
     return DataLoader(
         dataset,
         batch_size=batch_size,

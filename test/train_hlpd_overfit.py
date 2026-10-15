@@ -1,11 +1,11 @@
 """
-Overfits an HLPDModel to a single simulated study, as a check that the model and the LDDMM loss can converge at all.
+Overfits an HLPDModel to a single simulated study, as a check that the model and its loss can converge at all.
 
-The model reconstructs a template f_0 and velocity fields v_t from the sinogram g, and is trained with the LDDMM loss
-(operators/lddmm/lddmm_loss.py) on the template deformed by each v_t:
-    --domain image       supervised:    sum_t ||x_t - f_0 o phi_t||^2       + lambda ||L v_t||^2, with x_t the ground truth volumes
-    --domain projection  unsupervised:  sum_t ||g_t - T_t(f_0 o phi_t)||^2  + lambda ||L v_t||^2, with T_t the ray transform of time bin t
-The image domain error of the deformed sequence is logged in both cases, so that convergence can be compared.
+The model reconstructs the time bins f_t, the cyclic motion v_t from time bin t to t+1 mod T, and the predictions w_t = W(f_{t-1}, v_{t-1})
+of each time bin by the motion from the sinogram g, and is trained with the joint reconstruction and registration loss (model/hlpd_loss.py):
+    --domain image       supervised:    sum_t ||x_t - f_t||^2      + lambda_c ||w_t - f_t||^2 + lambda ||L v_t||^2, with x_t the ground truth volumes
+    --domain projection  unsupervised:  sum_t ||g_t - T_t f_t||^2  + lambda_c ||w_t - f_t||^2 + lambda ||L v_t||^2, with T_t the ray transform of time bin t
+The image domain errors of the reconstructions and of their predictions are logged in both cases, so that convergence can be compared.
 
 Uses the full resolution study and its stored sinogram, so the ray transform is built from the config the data was simulated with.
 Per-step losses, wall time and peak GPU memory are logged to <out-dir>/metrics/<run_id>.jsonl (see tracking/run.py). With
@@ -44,9 +44,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--study-idx", type=int, default=0)
     # model
     parser.add_argument("--num-iters", type=int, default=5, help="Number of unrolled HLPD iterations.")
-    parser.add_argument("--hidden-channels", type=int, nargs="*", default=[8, 8], help="Hidden channels of each ConvStack, must be divisible by 4 (GroupNorm).")
+    parser.add_argument("--hidden-channels", type=int, nargs="*", default=[32, 32], help="Hidden channels of each ConvStack, must be divisible by 4 (GroupNorm).")
     parser.add_argument("--recurrent", action=argparse.BooleanOptionalAction, default=True, help="Recurrent in time. The non-recurrent model stacks all time bins as channels, which is very memory hungry at full resolution.")
-    parser.add_argument("--shared-time", action=argparse.BooleanOptionalAction, default=False, help="Recurrent mode: share the nets across time bins.")
+    parser.add_argument("--shared-time", action=argparse.BooleanOptionalAction, default=True, help="Recurrent mode: share the nets across time bins.")
     parser.add_argument("--shared-iters", action=argparse.BooleanOptionalAction, default=False, help="Share the HLPD block across iterations.")
     parser.add_argument("--grad-checkpointing", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--integration-steps", type=int, default=7)
@@ -55,7 +55,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--fbp-init", action=argparse.BooleanOptionalAction, default=True, help="Initialize f with the FBP and h with the data, instead of zeros.")
     # loss and optimization
     parser.add_argument("--domain", choices=["image", "projection"], default="image")
-    parser.add_argument("--lambda-reg", type=float, default=1e-6)
+    parser.add_argument("--lambda-coupling", type=float, default=1.0)
+    parser.add_argument("--lambda-reg", type=float, default=0)
     parser.add_argument("--helmholtz", type=float, nargs=3, default=[1.0, 1.0, 1.0], metavar=("ALPHA", "GAMMA", "BETA"))
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--steps", type=int, default=500)
@@ -73,15 +74,18 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def load_study(data_root: Path, quality: str, mode: str, idx: int, device: torch.device) -> tuple[list[torch.Tensor], list[torch.Tensor], dict]:
-    """The sinogram and ground truth volume of one study, as lists over time of (1, ...) tensors, and the study's meta data."""
-    dataset = RegAndReconDataset(qualities=[quality], mode=mode, data_root=data_root, load_volume=True)
+def load_study(data_root: Path, quality: str, mode: str, idx: int, device: torch.device, load_fbp: bool = False
+               ) -> tuple[list[torch.Tensor], list[torch.Tensor], list[torch.Tensor] | None, dict]:
+    """The sinogram, ground truth volume and (with load_fbp) stored FBP of one study, as lists over time of (1, ...) tensors, and the
+    study's meta data."""
+    dataset = RegAndReconDataset(qualities=[quality], mode=mode, data_root=data_root, load_volume=True, load_fbp=load_fbp)
     if len(dataset) == 0:
         raise RuntimeError(f"No finished '{mode}' studies of quality '{quality}' under {data_root}.")
     batch = collate_time_list([dataset[idx]])
     g = [gt.to(device) for gt in batch["sinogram"]]       # T x (1, nAngles, nCol, nRow)
     x = [xt.to(device) for xt in batch["volume"]]         # T x (1, D, H, W)
-    return g, x, batch["meta"][0]
+    fbp = [ft.to(device) for ft in batch["fbp"]] if load_fbp else None   # T x (1, D, H, W)
+    return g, x, fbp, batch["meta"][0]
 
 
 def main() -> None:
@@ -90,7 +94,7 @@ def main() -> None:
     device = torch.device(args.device)
     torch.manual_seed(args.seed)
 
-    g, x_true, meta = load_study(args.data_root, args.quality, args.mode, args.study_idx, device)
+    g, x_true, fbp, meta = load_study(args.data_root, args.quality, args.mode, args.study_idx, device, load_fbp=args.fbp_init)
     T = len(g)
     shape = tuple(x_true[0].shape[1:])
 
@@ -101,7 +105,7 @@ def main() -> None:
         deform=DeformParams(N=args.integration_steps, integration="euler"),
         normalization=NormalizationParams(operator=args.normalize_operator, intensity=args.intensity),
         zero_init=not args.fbp_init,
-        loss=LossParams(domain=args.domain, lambda_reg=args.lambda_reg, helmholtz=tuple(args.helmholtz)),
+        loss=LossParams(domain=args.domain, lambda_coupling=args.lambda_coupling, lambda_reg=args.lambda_reg, helmholtz=tuple(args.helmholtz)),
     )
     ray_trafo_params = simulation_ray_trafo_params(args.data_root)
 
@@ -117,8 +121,8 @@ def main() -> None:
     args.out_dir.mkdir(parents=True, exist_ok=True)
     with start_run("hlpd_overfit", config, log_dir=args.out_dir, args=run_args) as run:
 
-        model, lddmm_loss = build_hlpd(model_config, ray_trafo_params, T=T, shape=shape, device=device, mu_water=simulation_mu_water(args.data_root))  # type: ignore[arg-type]
-        set_geometry(model, lddmm_loss, meta)
+        model, loss_fn = build_hlpd(model_config, ray_trafo_params, T=T, shape=shape, device=device, mu_water=simulation_mu_water(args.data_root))  # type: ignore[arg-type]
+        set_geometry(model, loss_fn, meta)
         if args.normalize_operator:
             logger.info("Operator norms ||T_t||: %s", ", ".join(f"{n:.4g}" for n in model.operator_norms))
         y = g if args.domain == "projection" else x_true
@@ -147,9 +151,9 @@ def main() -> None:
                 optimizer.zero_grad(set_to_none=True)
 
                 with region("step/forward"):
-                    f_template, v = model(g)
+                    w, f, v = model(g, fbp)
                 with region("step/loss"):
-                    loss, x_deformed = lddmm_loss(f_template, y, v)
+                    loss = loss_fn(w, f, v, y)
                 with region("step/backward"):
                     loss.total_loss.backward()
                 with region("step/optimizer"):
@@ -162,12 +166,15 @@ def main() -> None:
                 prof.step()
 
             with torch.no_grad():
-                image_mse = torch.stack([torch.mean((xd - xt) ** 2) for xd, xt in zip(x_deformed, x_true)]).mean().item()
+                image_mse = torch.stack([torch.mean((ft - xt) ** 2) for ft, xt in zip(f, x_true)]).mean().item()
+                warp_mse = torch.stack([torch.mean((wt - xt) ** 2) for wt, xt in zip(w, x_true)]).mean().item()
             metrics = {
                 "total_loss": loss.total_loss.item(),
                 "data_loss": loss.data_loss.item(),
+                "coupling_loss": loss.coupling_loss.item(),
                 "regularization_loss": loss.regularization_loss.item(),
                 "image_mse": image_mse,
+                "warp_mse": warp_mse,
                 **stats,
             }
             run.log_metrics(step, **metrics)
@@ -183,7 +190,7 @@ def main() -> None:
                 if step % args.plot_every == 0 or last:
                     plot_losses(history, plot_dir / "loss.png", zero_prediction_mse)
                 if step % args.gif_every == 0 or last:
-                    plot_prediction_gif(x_deformed, x_true, v, model.extent, plot_dir / "prediction.gif", step)
+                    plot_prediction_gif(f, x_true, v, model.extent, plot_dir / "prediction.gif", step, x_warped=w)
 
         if prof is not None:
             prof.stop()
@@ -195,7 +202,7 @@ def main() -> None:
         run.results = {"final_metrics": metrics, "zero_prediction_image_mse": zero_prediction_mse}
 
         with torch.no_grad():
-            torch.save({"f_template": f_template.cpu(), "v": [vt.cpu() for vt in v], "x_deformed": [xd.cpu() for xd in x_deformed]}, args.out_dir / f"{run.run_id}_output.pt")
+            torch.save({"f": [ft.cpu() for ft in f], "w": [wt.cpu() for wt in w], "v": [vt.cpu() for vt in v]}, args.out_dir / f"{run.run_id}_output.pt")
 
 
 if __name__ == "__main__":

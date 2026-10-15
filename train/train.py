@@ -1,5 +1,5 @@
 """
-Trains the HLPD model with the LDDMM loss on the simulated studies, on one or several GPUs (DistributedDataParallel).
+Trains the HLPD model with its joint reconstruction and registration loss (model/hlpd_loss.py) on the simulated studies, on one or several GPUs (DistributedDataParallel).
 
 Each process (rank) trains on its own GPU with one study per step, and the gradients are averaged over the ranks, so an optimizer
 step sees world_size studies. Every rank sets the geometry of its own study before the forward pass (the studies differ in their
@@ -39,7 +39,7 @@ from data.config import DEFAULT_SIMULATED_ROOT
 from data.loaders import RegAndReconDataset, collate_time_list
 from model.build import HLPDConfig, build_hlpd, configure_cuda, set_geometry, simulation_mu_water, simulation_ray_trafo_params
 from model.hlpd import HLPDModel
-from operators.lddmm.lddmm_loss import LDDMMloss
+from model.hlpd_loss import HLPDLoss, HLPDLossTerms
 from tracking.profiling import StepStats
 from tracking.run import start_run
 from tracking.timeline import StepTimeline, region
@@ -47,7 +47,7 @@ from tracking.training_plots import plot_gpu_memory, plot_losses, plot_predictio
 
 logger = logging.getLogger(__name__)
 
-METRICS = ("total_loss", "data_loss", "regularization_loss", "image_mse")
+METRICS = ("total_loss", "data_loss", "coupling_loss", "regularization_loss", "image_mse", "warp_mse")
 
 
 def parse_args() -> argparse.Namespace:
@@ -112,35 +112,40 @@ def all_reduce_mean(values: dict[str, float], device: torch.device, world_size: 
     return dict(zip(values, (tensor / world_size).tolist()))
 
 
-def step_metrics(loss, x_deformed: list[torch.Tensor], x_true: list[torch.Tensor]) -> dict[str, float]:
+def step_metrics(loss: HLPDLossTerms, w: list[torch.Tensor], f: list[torch.Tensor], x_true: list[torch.Tensor]) -> dict[str, float]:
+    """The loss terms, and the image domain errors of the reconstructions f (image_mse) and of their predictions w by the motion (warp_mse)."""
     with torch.no_grad():
-        image_mse = torch.stack([torch.mean((xd.reshape(xt.shape) - xt) ** 2) for xd, xt in zip(x_deformed, x_true)]).mean()
-        return {"total_loss": loss.total_loss.item(), "data_loss": loss.data_loss.item(), "regularization_loss": loss.regularization_loss.item(), "image_mse": image_mse.item()}
+        image_mse = torch.stack([torch.mean((ft - xt) ** 2) for ft, xt in zip(f, x_true)]).mean()
+        warp_mse = torch.stack([torch.mean((wt - xt) ** 2) for wt, xt in zip(w, x_true)]).mean()
+        return {"total_loss": loss.total_loss.item(), "data_loss": loss.data_loss.item(), "coupling_loss": loss.coupling_loss.item(),
+                "regularization_loss": loss.regularization_loss.item(), "image_mse": image_mse.item(), "warp_mse": warp_mse.item()}
 
 
-def to_device(batch: dict, device: torch.device) -> tuple[list[torch.Tensor], list[torch.Tensor], dict]:
+def to_device(batch: dict, device: torch.device) -> tuple[list[torch.Tensor], list[torch.Tensor], list[torch.Tensor] | None, dict]:
+    """The sinogram, volume and (if loaded, see RegAndReconDataset) FBP of a batch on the device, and the meta data of its first study."""
     g = [gt.to(device, non_blocking=True) for gt in batch["sinogram"]]       # T x (1, nAngles, nCol, nRow)
     x = [xt.to(device, non_blocking=True) for xt in batch["volume"]]         # T x (1, D, H, W)
-    return g, x, batch["meta"][0]
+    fbp = [ft.to(device, non_blocking=True) for ft in batch["fbp"]] if "fbp" in batch else None   # T x (1, D, H, W)
+    return g, x, fbp, batch["meta"][0]
 
 
 @torch.no_grad()
-def validate(model: HLPDModel, loss_fn: LDDMMloss, loader: DataLoader, domain: str, device: torch.device, world_size: int) -> tuple[dict[str, float], int, dict | None]:
+def validate(model: HLPDModel, loss_fn: HLPDLoss, loader: DataLoader, domain: str, device: torch.device, world_size: int) -> tuple[dict[str, float], int, dict | None]:
     """Mean metrics over the validation studies (each rank evaluates its own shard, without DDP), the number of studies, and the
     outputs of this rank's first study for the prediction GIF."""
     model.eval()
     sums = torch.zeros(len(METRICS) + 2, device=device, dtype=torch.float64)  # metrics, zero prediction mse, count
     first = None
     for batch in loader:
-        g, x_true, meta = to_device(batch, device)
+        g, x_true, fbp, meta = to_device(batch, device)
         set_geometry(model, loss_fn, meta)
-        f_template, v = model(g)
-        loss, x_deformed = loss_fn(f_template, g if domain == "projection" else x_true, v)
-        metrics = step_metrics(loss, x_deformed, x_true)
+        w, f, v = model(g, fbp)
+        loss = loss_fn(w, f, v, g if domain == "projection" else x_true)
+        metrics = step_metrics(loss, w, f, x_true)
         zero_mse = torch.stack([xt.square().mean() for xt in x_true]).mean()
         sums += torch.tensor([*metrics.values(), zero_mse.item(), 1.0], device=device, dtype=torch.float64)
         if first is None:
-            first = {"x_deformed": [xd.cpu() for xd in x_deformed], "x_true": [xt.cpu() for xt in x_true], "v": [vt.cpu() for vt in v], "extent": model.extent}
+            first = {"f": [ft.cpu() for ft in f], "w": [wt.cpu() for wt in w], "x_true": [xt.cpu() for xt in x_true], "v": [vt.cpu() for vt in v], "extent": model.extent}
     if world_size > 1:
         dist.all_reduce(sums)
     model.train()
@@ -180,8 +185,10 @@ def main() -> None:
     seed_everything(train_cfg["seed"])  # NOTE: the same seed on all ranks, DDP also broadcasts rank 0's initial parameters
 
     # Data: each rank trains on its own part of the shuffled studies (DistributedSampler) and validates on every world_size-th study.
-    train_set = RegAndReconDataset(qualities=data_cfg["train_qualities"], mode="train", data_root=args.data_root, load_volume=True)
-    val_set = RegAndReconDataset(qualities=data_cfg["val_qualities"], mode="val", data_root=args.data_root, load_volume=True)
+    # NOTE: the FBPs stored by the data pipeline are only needed (and loaded) for the FBP initialization.
+    load_fbp = not model_config.zero_init
+    train_set = RegAndReconDataset(qualities=data_cfg["train_qualities"], mode="train", data_root=args.data_root, load_volume=True, load_fbp=load_fbp)
+    val_set = RegAndReconDataset(qualities=data_cfg["val_qualities"], mode="val", data_root=args.data_root, load_volume=True, load_fbp=load_fbp)
     assert len(train_set) > 0, f"No finished training studies of qualities {data_cfg['train_qualities']} under {args.data_root}."
     T, shape = study_shape(train_set)
     train_sampler = DistributedSampler(train_set, num_replicas=world_size, rank=rank, shuffle=True, seed=train_cfg["seed"])
@@ -242,7 +249,7 @@ def main() -> None:
             n_steps = 0
 
             for batch in train_loader:
-                g, x_true, meta = to_device(batch, device)
+                g, x_true, fbp, meta = to_device(batch, device)
                 set_geometry(model, loss_fn, meta)
                 y = g if model_config.loss.domain == "projection" else x_true
 
@@ -252,9 +259,9 @@ def main() -> None:
                 with timeline.record() if record else nullcontext():
                     optimizer.zero_grad(set_to_none=True)
                     with region("step/forward"):
-                        f_template, v = ddp_model(g)
+                        w, f, v = ddp_model(g, fbp)
                     with region("step/loss"):
-                        loss, x_deformed = loss_fn(f_template, y, v)
+                        loss = loss_fn(w, f, v, y)
                     with region("step/backward"):
                         loss.total_loss.backward()
                     with region("step/optimizer"):
@@ -265,7 +272,7 @@ def main() -> None:
                 if record:
                     stats.update(timeline.peaks)  # the timeline resets the peak memory stats at every sample
 
-                metrics = all_reduce_mean(step_metrics(loss, x_deformed, x_true), device, world_size)
+                metrics = all_reduce_mean(step_metrics(loss, w, f, x_true), device, world_size)
                 for key in METRICS:
                     epoch_sums[key] += metrics[key]
                 n_steps += 1
@@ -306,8 +313,8 @@ def main() -> None:
                     if args.plot:
                         plot_losses(history, plot_dir / "loss.png", zero_prediction_mse, val_history)
                         if first is None:
-                            first = {"x_deformed": x_deformed, "x_true": x_true, "v": v, "extent": model.extent}
-                        plot_prediction_gif(first["x_deformed"], first["x_true"], first["v"], first["extent"], plot_dir / "prediction.gif", step)
+                            first = {"f": f, "w": w, "x_true": x_true, "v": v, "extent": model.extent}
+                        plot_prediction_gif(first["f"], first["x_true"], first["v"], first["extent"], plot_dir / "prediction.gif", step, x_warped=first["w"])
 
             # Checkpoints: every checkpoint_every epochs, the last one, and the best by validation (or training) loss.
             if rank == 0:

@@ -3,9 +3,9 @@
 This directory turns the raw 4D CT studies into the simulated training data for the registration and reconstruction models. It covers labelling the data quality, splitting the studies, preprocessing the volumes, simulating the projections, and loading the result filtered by quality and split.
 
 ```
-raw 4D CT ──► triage ──► split ──► preprocess ──► project ──► quality loader ──► training
-(DATA_ROOT)   triage.py  └────────── pipeline.py ──────────┘  loaders.py
-                         (SIMULATED_ROOT/<geometry>)          (+ Poisson noise on the fly)
+raw 4D CT ──► triage ──► split ──► preprocess ──► project (+ noise) ──► FBP ──► quality loader ──► training
+(DATA_ROOT)   triage.py  └──────────────── pipeline.py ─────────────────┘   loaders.py
+                         (SIMULATED_ROOT/<geometry>)
 ```
 
 ## Layout
@@ -56,8 +56,9 @@ batch["meta"]      # list of B dicts: extent, voxel spacing, time steps, study i
 1. **Triage** (`triage.py`): labels each raw study as high, medium or low quality. Entries are keyed by study id (`<patient_id>_study_<n>`) and also store the study directory, the number of time bins and the scan info.
 2. **Split** (`pipeline.make_splits`): train/val/test split grouped by patient, so all studies of a patient end up in the same split and no anatomy is shared between splits. Ratios and seed come from `configs/preprocess.json`. When more studies are labelled, patients that already have a split keep it, and only new patients are assigned. Studies whose number of time bins doesn't match `time_bins` are left out.
 3. **Preprocess** (`transforms.DataTransform`): resizes the `(T, D, H, W)` stack to `SHAPE` and maps it from the normalized range to HU and then to attenuation values in mm⁻¹, using HU = 1000 (μ − μ_water) / (μ_water − μ_air). The bottom of the HU range lies below air, so attenuation values can be slightly negative. This is intended.
-4. **Project** (`pipeline.simulate_study`): forward projects each time bin with its own `RayTransform` geometry. Each bin lasts one time unit, because no gating times are available, so a bin covers `GantrySpeed` rad (π/2 by default, limited angle) with `nViews` views. Only clean line integrals are stored. The noise is added by the loader.
-5. **Load** (`loaders.get_quality_loader`): yields the model-side format, where time is a list and batch and space are tensors.
+4. **Project** (`pipeline.simulate_study`): forward projects each time bin with its own `RayTransform` geometry. Each bin lasts one time unit, because no gating times are available, so a bin covers `GantrySpeed` rad (π/2 by default, limited angle) with `nViews` views. Poisson noise is added with the `Flux` of the ray transform config (`RayTransform.add_poisson_noise`), and the noisy line integrals are stored.
+5. **FBP** (`pipeline.simulate_study`): the FBP (Ram-Lak) of each time bin's noisy sinogram, used e.g. for the FBP initialization of HLPD. Computing it is slow (odl filters on the CPU), and would otherwise be paid at every training step. Studies simulated before the FBPs were stored get them on the next pipeline run, from their stored sinograms, so their noise realization is kept.
+6. **Load** (`loaders.get_quality_loader`): yields the model-side format, where time is a list and batch and space are tensors. Volumes (`load_volume`) and FBPs (`load_fbp`) are only loaded when asked for. An extra `noise` model on top of the stored noisy sinograms cannot be combined with `load_fbp`, as the stored FBP would no longer match the sinogram.
 
 ## On-disk layout
 
@@ -71,7 +72,8 @@ SIMULATED_ROOT/<geometry>/
     logs/<run_id>.log    log output per run
     <quality>/<split>/<study_id>/
         volume.pt        (T, D, H, W) attenuation values in mm^-1
-        sinogram.pt      (T, views, cols, rows) clean line integrals
+        sinogram.pt      (T, views, cols, rows) noisy line integrals
+        fbp.pt           (T, D, H, W) FBP of each time bin's sinogram, in mm^-1
         meta.json        scan info, extent, voxel spacing of the resized grid, time steps, config hash, run id
         done             marker written last. The loader only includes finished studies.
 ```
@@ -90,7 +92,7 @@ Every pipeline run is tracked with `tracking.start_run` (see `tracking/run.py`),
 
 `config.json` ties a `SIMULATED_ROOT/<geometry>` directory to one config. If any parameter changes, the next run fails with `ConfigMismatchError` rather than mixing data from different configs. To keep both datasets, simulate into another `--out-root`. Each study's `meta.json` names the config hash and run that produced it.
 
-The same tooling is meant for training: `start_run("training", config={model, optimizer, data: {simulation config hash, qualities, flux, ...}}, log_dir=run_dir)`. It gives each training run the same record, plus per-step metrics through `run.log_metrics(step, loss=...)`. Note that the noise level (flux) is chosen in the loader, so it is a training parameter and not a simulation parameter.
+The same tooling is meant for training: `start_run("training", config={model, optimizer, data: {simulation config hash, qualities, flux, ...}}, log_dir=run_dir)`. It gives each training run the same record, plus per-step metrics through `run.log_metrics(step, loss=...)`. Note that the noise level (`Flux`) is part of the ray transform config, so it is a simulation parameter.
 
 ## Conventions and notes
 

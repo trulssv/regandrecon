@@ -21,8 +21,12 @@ from model.hlpd import (
     HLPDUnrolled,
     HLPDUnrolledParams,
     NormalizationParams,
+    IterationUnits,
+    NormalizedRayTransform,
     RayTrafoParams,
+    net_channels,
 )
+from model.hlpd_loss import HLPDLoss
 from operators.lddmm.deform import FlowDeformationOperator
 from operators.lddmm.helmholtz import HelmholtzOperator
 from operators.lddmm.lddmm_loss import LDDMMloss
@@ -35,6 +39,7 @@ SHAPE = (4, 6, 6)
 RAY_PARAMS = RayTrafoParams(nDetectorCols=5, nDetectorRows=3, nViews=4)
 SINO_SHAPE = (RAY_PARAMS.nViews, RAY_PARAMS.nDetectorCols, RAY_PARAMS.nDetectorRows)
 CONV_PARAMS = ConvStackParams(hidden_channels=[8])
+EXTENT = (8.0, 6.0, 6.0)
 
 
 class MockRayTransform:
@@ -74,16 +79,21 @@ def make_ray_trafo() -> MockRayTransform:
     return ray_trafo
 
 
-def make_unrolled(recurrent: bool, shared_time: bool, shared_iters: bool, grad_checkpointing: bool, num_iters: int = 2) -> HLPDUnrolled:
+def make_deform() -> FlowDeformationOperator:
+    return FlowDeformationOperator(N=3, integration="euler", shape=SHAPE, extent=EXTENT)
+
+
+def make_unrolled(recurrent: bool, shared_time: bool, shared_iters: bool, grad_checkpointing: bool, num_iters: int = 2,
+                  zero_init_final: bool = True) -> HLPDUnrolled:
     torch.manual_seed(0)
-    p_in, p_out = (6, 1) if recurrent else (5 * T, T)
-    d_in, d_out = (4, 1) if recurrent else (3 * T, T)
-    m_in, m_out = (7, 3) if recurrent else (4 * T, 3 * T)
+    p_in, p_out, d_in, d_out, m_in, m_out = net_channels(recurrent, T)
+    conv_params = {**vars(CONV_PARAMS), "zero_init_final": zero_init_final}
     block = HLPDBlock(
-        ConvStack(p_in, p_out, **vars(CONV_PARAMS)),
-        ConvStack(d_in, d_out, **vars(CONV_PARAMS)),
-        ConvStack(m_in, m_out, **vars(CONV_PARAMS)),
+        ConvStack(p_in, p_out, **conv_params),
+        ConvStack(d_in, d_out, **conv_params),
+        ConvStack(m_in, m_out, **conv_params),
         make_ray_trafo(),  # type: ignore[arg-type]
+        make_deform(),
         recurrent=recurrent,
         time_steps=T,
         shared=shared_time,
@@ -96,14 +106,16 @@ def make_inputs() -> tuple[tuple[list[torch.Tensor], ...], list[torch.Tensor]]:
     f = [torch.randn(B, *SHAPE) for _ in range(T)]
     h = [torch.randn(B, *SINO_SHAPE) for _ in range(T)]
     v = [torch.randn(B, 3, *SHAPE) for _ in range(T)]
+    w = [torch.randn(B, *SHAPE) for _ in range(T)]
     g = [torch.randn(B, *SINO_SHAPE) for _ in range(T)]
-    return (f, h, v), g
+    return (f, h, v, w), g
 
 
 def assert_output_shapes(out: tuple[list[torch.Tensor], ...]) -> None:
-    f, h, v = out
-    assert len(f) == len(h) == len(v) == T
+    f, h, v, w = out
+    assert len(f) == len(h) == len(v) == len(w) == T
     assert all(ft.shape == (B, *SHAPE) for ft in f)
+    assert all(wt.shape == (B, *SHAPE) for wt in w)
     assert all(ht.shape == (B, *SINO_SHAPE) for ht in h)
     assert all(vt.shape == (B, 3, *SHAPE) for vt in v)
 
@@ -153,10 +165,12 @@ def test_checkpointing_matches_plain_forward_and_backward(recurrent: bool, share
         torch.testing.assert_close(grads_plain[name], grads_ckpt[name], msg=name)
 
 
-def test_unrolled_iterations_share_ray_trafo() -> None:
+def test_unrolled_iterations_share_ray_trafo_and_deform() -> None:
     model = make_unrolled(recurrent=True, shared_time=False, shared_iters=False, grad_checkpointing=False, num_iters=3)
     ray_trafo = model.hlpd_model_list[0].ray_trafo
+    deform = model.hlpd_model_list[0].deform
     assert all(block.ray_trafo is ray_trafo for block in model.hlpd_model_list)
+    assert all(block.deform is deform for block in model.hlpd_model_list)
     # The nets themselves are still independent copies.
     assert model.hlpd_model_list[0].primal_net is not model.hlpd_model_list[1].primal_net
 
@@ -184,26 +198,29 @@ def make_hlpd_model(monkeypatch: pytest.MonkeyPatch, recurrent: bool, normalize:
 @pytest.mark.parametrize("recurrent", [True, False])
 def test_hlpd_model_forward(monkeypatch: pytest.MonkeyPatch, recurrent: bool) -> None:
     model = make_hlpd_model(monkeypatch, recurrent)
-    assert model.deform.extent == model.extent == (8.0, 6.0, 6.0)
+    assert model.deform.extent == model.extent == EXTENT
+    # The blocks warp with the model's deformation operator, so they see the extent set by set_geometry.
+    assert all(block.deform is model.deform for block in model.unrolled_model.hlpd_model_list)
 
     # Only the unrolled model's copies of the nets are registered.
     assert {name.split(".")[0] for name, _ in model.named_parameters()} == {"unrolled_model"}
 
     g = [torch.randn(B, *SINO_SHAPE) for _ in range(T)]
-    f_template, v = model(g)
+    w, f, v = model(g)
 
-    assert f_template.shape == (B, *SHAPE)
-    assert len(v) == T
+    assert len(w) == len(f) == len(v) == T
+    assert all(wt.shape == (B, *SHAPE) for wt in w)
+    assert all(ft.shape == (B, *SHAPE) for ft in f)
     assert all(vt.shape == (B, *SHAPE, 3) for vt in v)
 
 
 @pytest.mark.parametrize("domain", ["image", "projection"])
-def test_hlpd_model_trains_with_lddmm_loss(monkeypatch: pytest.MonkeyPatch, domain: str) -> None:
-    """One training step with the LDDMM loss in the image or projection domain reaches every parameter and lowers the loss."""
-    model = make_hlpd_model(monkeypatch, recurrent=True)
+@pytest.mark.parametrize("recurrent", [True, False])
+def test_hlpd_model_trains_with_hlpd_loss(monkeypatch: pytest.MonkeyPatch, domain: str, recurrent: bool) -> None:
+    """One training step with the loss in the image or projection domain reaches every parameter and lowers the loss."""
+    model = make_hlpd_model(monkeypatch, recurrent=recurrent)
     helmholtz_op = HelmholtzOperator(dim=3, extent=model.extent)
-    forward_op = model.ray_trafo if domain == "projection" else None
-    loss_fn = LDDMMloss(flow_deform_op=model.deform, helmholtz_op=helmholtz_op, lambda_reg=1e-3, forward_op=forward_op)  # type: ignore[arg-type]
+    loss_fn = HLPDLoss(helmholtz_op, model.units, domain=domain, lambda_coupling=1.0, lambda_reg=1e-3)
 
     torch.manual_seed(1)
     x_true = [torch.rand(B, *SHAPE) for _ in range(T)]
@@ -214,16 +231,64 @@ def test_hlpd_model_trains_with_lddmm_loss(monkeypatch: pytest.MonkeyPatch, doma
     losses = []
     for _ in range(2):
         optimizer.zero_grad()
-        f_template, v = model(g)
-        loss, x_deformed = loss_fn(f_template, y, v)
+        w, f, v = model(g)
+        loss = loss_fn(w, f, v, y)
         loss.total_loss.backward()
         missing = [name for name, p in model.named_parameters() if p.grad is None]
         assert not missing, f"Parameters without gradient: {missing}"
         optimizer.step()
         losses.append(loss.total_loss.item())
 
-    assert len(x_deformed) == T and all(xd.shape == (B, *SHAPE) for xd in x_deformed)
+    assert loss.coupling_loss.item() > 0
     assert losses[1] < losses[0]
+
+
+def test_hlpd_loss_terms() -> None:
+    """The coupling term vanishes when the predictions match the reconstructions, and each term is weighted in the total."""
+    torch.manual_seed(0)
+    f = [torch.rand(B, *SHAPE) for _ in range(T)]
+    y = [torch.rand(B, *SHAPE) for _ in range(T)]
+    v = [torch.randn(B, *SHAPE, 3) for _ in range(T)]
+    units = IterationUnits(1.0, NormalizedRayTransform(make_ray_trafo(), T))  # type: ignore[arg-type]
+    loss_fn = HLPDLoss(HelmholtzOperator(dim=3, extent=EXTENT), units, domain="image", lambda_coupling=2.0, lambda_reg=0.5)
+
+    matched = loss_fn(f, f, v, y)
+    assert matched.coupling_loss.item() == 0.0
+
+    w = [ft + 0.1 for ft in f]
+    loss = loss_fn(w, f, v, y)
+    torch.testing.assert_close(loss.coupling_loss, torch.tensor(T * 0.01))
+    torch.testing.assert_close(loss.data_loss, torch.stack([torch.mean((ft - yt) ** 2) for ft, yt in zip(f, y)]).sum())
+    torch.testing.assert_close(loss.total_loss, loss.data_loss + 2.0 * loss.coupling_loss + 0.5 * loss.regularization_loss)
+
+
+@pytest.mark.parametrize("domain", ["image", "projection"])
+@pytest.mark.parametrize("normalize, intensity", [(False, "physical"), (True, "water")])
+def test_hlpd_loss_uses_the_units_of_the_model(monkeypatch: pytest.MonkeyPatch, domain: str, normalize: bool, intensity: str) -> None:
+    """The loss is computed in the units of the iterations: images scaled by the intensity scale c, and data by c / ||T_t||. Without
+    normalization, these are the physical units."""
+    model = make_hlpd_model(monkeypatch, recurrent=True, normalize=normalize, intensity=intensity)
+    loss_fn = HLPDLoss(HelmholtzOperator(dim=3, extent=model.extent), model.units, domain=domain, lambda_coupling=1.0, lambda_reg=0.0)
+    torch.manual_seed(0)
+    x_true = [torch.rand(B, *SHAPE) for _ in range(T)]
+    f = [torch.rand(B, *SHAPE) for _ in range(T)]
+    w = [torch.rand(B, *SHAPE) for _ in range(T)]
+    v = [torch.zeros(B, *SHAPE, 3) for _ in range(T)]
+    g = model.ray_trafo(x_true)
+
+    loss = loss_fn(w, f, v, g if domain == "projection" else x_true)
+
+    c = model.intensity_scale
+    s = [1.0 / n for n in model.operator_norms] if normalize else [1.0] * T
+    if domain == "projection":
+        expected_data = sum(torch.mean((c * st * (model.ray_trafo.forward_bin(ft, t) - gt)) ** 2) for t, (ft, gt, st) in enumerate(zip(f, g, s)))
+    else:
+        expected_data = sum(torch.mean((c * (ft - xt)) ** 2) for ft, xt in zip(f, x_true))
+    torch.testing.assert_close(loss.data_loss, expected_data)
+    torch.testing.assert_close(loss.coupling_loss, sum(torch.mean((c * (wt - ft)) ** 2) for wt, ft in zip(w, f)))
+    # The model feeds its iterations the data in the same units.
+    for a, b in zip(model.units.data(g), model.scale_data([c * gt for gt in g])):
+        torch.testing.assert_close(a, b)
 
 
 def test_lddmm_loss_projection_domain_requires_time_dependent_input() -> None:
@@ -281,14 +346,42 @@ def test_block_is_identity_at_initialization(recurrent: bool) -> None:
     """With zero initialized final layers, the residual updates of an untrained block are zero."""
     block = make_unrolled(recurrent=recurrent, shared_time=False, shared_iters=False, grad_checkpointing=False).hlpd_model_list[0]
     torch.manual_seed(1)
-    f = [torch.randn(B, *SHAPE) for _ in range(T)]
-    h = [torch.randn(B, *SINO_SHAPE) for _ in range(T)]
-    v = [torch.randn(B, 3, *SHAPE) for _ in range(T)]
-    g = [torch.randn(B, *SINO_SHAPE) for _ in range(T)]
-    f_pred, h_pred, v_pred = block((f, h, v), g)
+    (f, h, v, w), g = make_inputs()
+    f_pred, h_pred, v_pred, w_pred = block((f, h, v, w), g)
     for pred, init in [(f_pred, f), (h_pred, h), (v_pred, v)]:
         for a, b in zip(pred, init):
             torch.testing.assert_close(a, b)
+    # The predictions are always updated, cyclically: w_{t+1} = W(f_t, v_t), and w_0 = W(f_{T-1}, v_{T-1}).
+    for t in range(T):
+        torch.testing.assert_close(w_pred[(t + 1) % T], block._warp(f[t], v[t]))
+
+
+@pytest.mark.parametrize("recurrent", [True, False])
+@pytest.mark.parametrize("grad_checkpointing", [False, True])
+def test_predictions_are_consistent_with_the_output(recurrent: bool, grad_checkpointing: bool) -> None:
+    """The returned predictions are the warps of the returned reconstructions with the returned velocities, so the loss can use them as they are."""
+    model = make_unrolled(recurrent, shared_time=False, shared_iters=False, grad_checkpointing=grad_checkpointing, zero_init_final=False)
+    x, g = make_inputs()
+    f, _, v, w = model(x, g)
+    block = model.hlpd_model_list[-1]
+    for t in range(T):
+        torch.testing.assert_close(w[(t + 1) % T], block._warp(f[t], v[t]))
+
+
+def test_recurrent_primal_net_sees_the_fresh_prediction(monkeypatch: pytest.MonkeyPatch) -> None:
+    """In the recurrent block, the primal net of time bin t > 0 gets the prediction W(f_{t-1}, v_{t-1}) of the current iteration, and
+    that of time bin 0 the prediction of the previous iteration."""
+    block = make_unrolled(recurrent=True, shared_time=False, shared_iters=False, grad_checkpointing=False, zero_init_final=False).hlpd_model_list[0]
+    seen: list[torch.Tensor] = []
+    for net in block.primal_net:
+        net.register_forward_pre_hook(lambda module, inputs: seen.append(inputs[0][:, 3].detach().clone()))
+    (f, h, v, w), g = make_inputs()
+
+    f_pred, _, v_pred, _ = block((f, h, v, w), g)
+
+    torch.testing.assert_close(seen[0], w[0])
+    for t in range(1, T):
+        torch.testing.assert_close(seen[t], block._warp(f_pred[t - 1], v_pred[t - 1]))
 
 
 @pytest.mark.parametrize("intensity", ["physical", "water"])
@@ -298,9 +391,28 @@ def test_untrained_model_returns_fbp_in_physical_units(monkeypatch: pytest.Monke
     model = make_hlpd_model(monkeypatch, recurrent=True, normalize=normalize, intensity=intensity, zero_init=False)
     assert model.intensity_scale == (50.0 if intensity == "water" else 1.0)
     g = [torch.randn(B, *SINO_SHAPE) for _ in range(T)]
-    f_template, v = model(g)
-    torch.testing.assert_close(f_template, model.ray_trafo.FBP(g)[0])
+    w, f, v = model(g)
+    fbp = model.ray_trafo.FBP(g)
+    for t in range(T):
+        torch.testing.assert_close(f[t], fbp[t])
+        torch.testing.assert_close(w[t], fbp[t - 1], atol=1e-5, rtol=1e-5)  # the identity warp of the previous time bin, cyclically
     assert all(torch.count_nonzero(vt) == 0 for vt in v)
+
+
+@pytest.mark.parametrize("intensity", ["physical", "water"])
+def test_untrained_model_returns_given_fbp(monkeypatch: pytest.MonkeyPatch, intensity: str) -> None:
+    """A given FBP (as stored by the data pipeline, in mm^-1) is used for the initialization instead of computing it, and is ignored
+    with zero initialization."""
+    model = make_hlpd_model(monkeypatch, recurrent=True, normalize=True, intensity=intensity, zero_init=False)
+    g = [torch.randn(B, *SINO_SHAPE) for _ in range(T)]
+    fbp = [torch.randn(B, *SHAPE) for _ in range(T)]
+    _, f, _ = model(g, fbp)
+    for ft, fbpt in zip(f, fbp):
+        torch.testing.assert_close(ft, fbpt)
+
+    zero_model = make_hlpd_model(monkeypatch, recurrent=True, normalize=True, intensity=intensity, zero_init=True)
+    w, f, _ = zero_model(g, fbp)
+    assert all(torch.count_nonzero(ft) == 0 and torch.count_nonzero(wt) == 0 for ft, wt in zip(f, w))
 
 
 def test_water_intensity_mode_needs_mu_water() -> None:

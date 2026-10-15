@@ -17,9 +17,9 @@ from operators.lddmm.deform import FlowDeformationOperator
 from data.utils import study_extent
 
 def _validate_input(x: Tuple[List[torch.Tensor], ...] | Tuple[torch.Tensor, ...]) -> None:
-    """Checks that the input is a tuple (f, h, v) of either lists of torch.Tensor or torch.Tensor. """
-    if not isinstance(x, tuple) or len(x) != 3:
-        raise ValueError("Input must be a tuple of three elements.")
+    """Checks that the input is a tuple (f, h, v, w) of either lists of torch.Tensor or torch.Tensor. """
+    if not isinstance(x, tuple) or len(x) != 4:
+        raise ValueError("Input must be a tuple of four elements.")
     if all(isinstance(elem, list) for elem in x):
         if not all(isinstance(sub_elem, torch.Tensor) for sublist in x for sub_elem in sublist):
             raise ValueError("All elements in the input lists must be torch.Tensor.")
@@ -92,8 +92,11 @@ class DataParams:
 class DeformParams:
     N: int = 7  # Default number of integration steps for the velocity field
     extent: tuple[float, ...] | None = None  # Physical extent, set from the scan geometry in HLPDModel.set_geometry
-    action: str = "geometric"
-    integration: str = "euler"
+    action: str = "geometric"   # mass_preserving or geometric
+    integration: str = "scaling_and_squaring" # euler or scaling_and_squaring
+    backend: str = "grid_pull"    # interpolation of the deformed image: grid_sample (linear) or grid_pull (B-splines, less blur), see operators/lddmm/deform.py
+    integrator_backend: str = "grid_sample"   # interpolation when composing deformations in the velocity integrator
+    order: int | list[int] = 3      # spline order(s) of grid_pull, an int or one per spatial dim (D, H, W), e.g. [3, 1, 1]
 
 
 
@@ -164,7 +167,7 @@ class NormalizedRayTransform:
 
     With scales[t] = 1 / ||T_t|| (NormalizationParams.operator), T_t^* T_t has norm 1, so that the dual and primal nets get T f and
     T^* h on the scale of f and h rather than ||T_t|| and ||T_t||^2 times larger. The data must then be scaled by the same factor,
-    which keeps it consistent with the normalized operator (T_t x = g_t <=> s_t T_t x = s_t g_t), see HLPDModel.scale_data.
+    which keeps it consistent with the normalized operator (T_t x = g_t <=> s_t T_t x = s_t g_t), see IterationUnits.data.
     The scales are set per geometry by HLPDModel.set_geometry, and are all 1 (the plain ray transform) without normalization."""
 
     def __init__(self, ray_trafo: RayTransform, T: int) -> None:
@@ -188,11 +191,52 @@ class NormalizedRayTransform:
         return [self.adjoint_bin(yt, t) for t, yt in enumerate(y)]
 
 
+class IterationUnits:
+    """The units of the HLPD iterations, shared by HLPDModel and its loss (model/hlpd_loss.py) so that both normalize alike:
+    images are c x and data s_t c g_t, with c the intensity scale (NormalizationParams.intensity) and s_t the scale of the operator of
+    time bin t (NormalizationParams.operator, see NormalizedRayTransform), which HLPDModel.set_geometry sets per geometry. Without
+    normalization, c = s_t = 1 and these are the physical units (mm^-1 and line integrals)."""
+
+    def __init__(self, intensity_scale: float, ray_trafo: NormalizedRayTransform) -> None:
+        self.intensity_scale = intensity_scale
+        self.ray_trafo = ray_trafo
+
+    def images(self, x: list[torch.Tensor]) -> list[torch.Tensor]:
+        """Images in mm^-1 in the units of the iterations."""
+        c = self.intensity_scale
+        return [xt * c for xt in x] if c != 1.0 else x
+
+    def to_physical(self, x: list[torch.Tensor]) -> list[torch.Tensor]:
+        """Images in the units of the iterations in mm^-1."""
+        c = self.intensity_scale
+        return [xt / c for xt in x] if c != 1.0 else x
+
+    def data(self, g: list[torch.Tensor]) -> list[torch.Tensor]:
+        """Measured data (line integrals of mm^-1) in the units of the iterations, i.e. on the scale of the normalized operator."""
+        # NOTE: T is linear, so the data of the scaled images c x is c g.
+        return [NormalizedRayTransform._scale(gt, self.intensity_scale * s) for gt, s in zip(g, self.ray_trafo.scales)]
+
+    def project(self, x: list[torch.Tensor]) -> list[torch.Tensor]:
+        """The normalized operator applied to images in mm^-1, comparable to self.data(g)."""
+        return self.ray_trafo(self.images(x))
+
+
+def net_channels(recurrent: bool, T: int) -> tuple[int, int, int, int, int, int]:
+    """The (in, out) channels of the primal, dual and motion nets of an HLPDBlock, see HLPDBlock._time_step and HLPDBlock.forward."""
+    if recurrent:
+        return 4, 1, 4, 1, 9, 3     # primal: f_prev, f_{t-1}, T*h, w_t. dual: h_prev, h_{t-1}, Tf, g. motion: v_prev, v_{t-1}, f_t, f_{t+1}, w_{t+1}
+    return 3 * T, T, 3 * T, T, 5 * T, 3 * T   # primal: f, T*h, w. dual: h, Tf, g. motion: v (3T), f, w
+
+
 class HLPDBlock(nn.Module):
     """Iteration model for the HLPD framework.
 
     This class defines a single iteration of the HLPD model, including the primal, dual,
     and registration modules, as well as the ray transform module.
+
+    The motion is cyclic: v_t maps time bin t to the next one, t+1 mod T, and w_t is the prediction of time bin t by the motion,
+    w_{t+1} = W(f_t, v_t) = f_t o exp(v_t)^{-1}, so that w_0 = W(f_{T-1}, v_{T-1}) closes the cycle. The primal net of time bin t
+    gets the prediction w_t, and the motion net the image f_{t+1} that v_t should map f_t to and its previous prediction w_{t+1}.
     """
     def __init__(
             self,
@@ -200,6 +244,7 @@ class HLPDBlock(nn.Module):
             dual_net: ConvStack,                # Dual module
             motion_net: ConvStack,              # Registration module
             ray_trafo: RayTransform | NormalizedRayTransform,  # Ray transform module (analytical)
+            deform: FlowDeformationOperator,    # Deformation operator W, shared with the model (its extent is set per study)
             recurrent: bool,                    # Whether the model is recurrent in time
             time_steps: int,
             shared: bool,                       # Recurrent mode only: whether the nets are shared across time bins
@@ -214,14 +259,11 @@ class HLPDBlock(nn.Module):
         # Define blocks
 
         self.ray_trafo = ray_trafo
+        self.deform = deform
 
         self.dual_net = self._init_module(dual_net, shared, recurrent)
         self.primal_net = self._init_module(primal_net, shared, recurrent)
         self.motion_net = self._init_module(motion_net, shared, recurrent)
-
-
-        
-        # Define the layers of the iteration model here
 
     @overload
     def _init_module(self, module: ConvStack, shared: bool, recurrent: Literal[False]) -> nn.Module: ...
@@ -230,17 +272,25 @@ class HLPDBlock(nn.Module):
     def _init_module(self, module: ConvStack, shared: bool, recurrent: Literal[True]) -> nn.ModuleList: ...
 
 
-    def _init_module(self, module: ConvStack, shared: bool, recurrent: bool=False) -> nn.Module | nn.ModuleList: 
+    def _init_module(self, module: ConvStack, shared: bool, recurrent: bool=False) -> nn.Module | nn.ModuleList:
 
         if not recurrent:
             return module
         else:
             return nn.ModuleList([copy.deepcopy(module) for _ in range(self.time_steps)]) if not shared else nn.ModuleList([module])
 
-    def _time_step(self, t: int, f_prev: torch.Tensor, h_prev: torch.Tensor, v_prev: torch.Tensor, f_t: torch.Tensor, h_t: torch.Tensor,
-                   v_t: torch.Tensor, g_t: torch.Tensor, zero_primal: bool) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Recurrent mode: the update of time bin t, from its iterates (f_prev, h_prev, v_prev) of the previous iteration and the
-        iterates (f_t, h_t, v_t) of the previous time bin of the current iteration. Returns the iterates of time bin t."""
+    def _warp(self, f: torch.Tensor, v: torch.Tensor) -> torch.Tensor:
+        """W(f, v) = f o exp(v)^{-1} for an image f (B, D, H, W) and a velocity field v (B, 3, D, H, W), as (B, D, H, W)."""
+        with region("hlpd/deform"):
+            return self.deform(f, v.permute(0, 2, 3, 4, 1)).squeeze(1)
+
+    def _time_step(self, t: int, f_prev: torch.Tensor, h_prev: torch.Tensor, v_prev: torch.Tensor, w_t: torch.Tensor, f_t: torch.Tensor,
+                   h_t: torch.Tensor, v_t: torch.Tensor, f_target: torch.Tensor, w_target: torch.Tensor, g_t: torch.Tensor,
+                   zero_primal: bool) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Recurrent mode: the update of time bin t, from its iterates (f_prev, h_prev, v_prev) of the previous iteration, the
+        iterates (f_t, h_t, v_t) of the previous time bin of the current iteration, and the prediction w_t of time bin t by the motion.
+        f_target is the latest iterate of the next time bin t+1 mod T and w_target its prediction of the previous iteration.
+        Returns the iterates (f, h, v) of time bin t and the prediction w_{t+1} = W(f_t, v_t) of the next time bin."""
         assert isinstance(self.dual_net, nn.ModuleList) and isinstance(self.primal_net, nn.ModuleList) and isinstance(self.motion_net, nn.ModuleList)
 
         # Update the primal, dual, and registration variables for the current iteration
@@ -271,11 +321,11 @@ class HLPDBlock(nn.Module):
 
         with region("hlpd/primal_net"):
             f_t = f_prev + lambda_module(
-                torch.cat([
-                    f_prev.unsqueeze(1),         # same time, previous iteration
-                    f_t.unsqueeze(1),            # previous time, current iteration
-                    Tadj_curr_t.unsqueeze(1),    # adjoint of the current time step's dual variable
-                    v_t                          # previous time, current iteration
+                torch.stack([
+                    f_prev,                      # same time, previous iteration
+                    f_t,                         # previous time, current iteration
+                    Tadj_curr_t,                 # adjoint of the current time step's dual variable
+                    w_t                          # prediction of the current time step by the motion from the previous time step
                 ], dim=1)
                 ).squeeze(1)
 
@@ -284,46 +334,46 @@ class HLPDBlock(nn.Module):
                 torch.cat([
                     v_prev,                      # same time, previous iteration
                     v_t,                         # previous time, current iteration
-                    f_t.unsqueeze(1)             # current time, updated primal variable
+                    f_t.unsqueeze(1),            # current time, updated primal variable
+                    f_target.unsqueeze(1),       # next time, the image v_t should map f_t to
+                    w_target.unsqueeze(1)        # next time, its prediction by the previous iteration's motion
                 ], dim=1)
                 )
 
-        return f_t, h_t, v_t
+        w_next = self._warp(f_t, v_t)
 
-    def _labeled_time_step(self, label: str, *args) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        return f_t, h_t, v_t, w_next
+
+    def _labeled_time_step(self, label: str, *args) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         # NOTE: the region is inside the checkpointed function, so that its recompute during backward is labeled as well (see tracking/timeline.py).
         with region(label):
             return self._time_step(*args)
 
-    @overload
-    def forward(self, x: Tuple[List[torch.Tensor], ...], g: List[torch.Tensor], zero_primal: bool = False, checkpoint_label: str | None = None) -> Tuple[List[torch.Tensor], ...]: ...
-    @overload
-    def forward(self, x: Tuple[torch.Tensor, ...], g: torch.Tensor, zero_primal: bool = False, checkpoint_label: str | None = None) -> Tuple[torch.Tensor, ...]: ...
-
-    def forward(self, x: Tuple[List[torch.Tensor], ...] | Tuple[torch.Tensor, ...], g: List[torch.Tensor] | torch.Tensor, zero_primal: bool = False, checkpoint_label: str | None = None) -> Tuple[List[torch.Tensor], ...] | Tuple[torch.Tensor, ...]:
+    def forward(self, x: Tuple[List[torch.Tensor], ...], g: List[torch.Tensor], zero_primal: bool = False, checkpoint_label: str | None = None) -> Tuple[List[torch.Tensor], ...]:
         """Forward pass of the HLPD iteration model.
 
         Args:
-            x: A tuple containing three elements (f, h, v), each of which can be
-                either a list of torch.Tensor or a single torch.Tensor. Where
-                f represents the primal variable, 
+            x: A tuple (f, h, v, w) of lists over the time bins, where
+                f represents the primal variable,
                 h represents the dual variable,
-                v represents the registration variable,
-            g: The observed data, either as a list of torch.Tensor or a single torch.Tensor.
+                v represents the registration variable, v_t mapping time bin t to t+1 mod T,
+                w represents the prediction of each time bin by the motion, w_t = W(f_{t-1}, v_{t-1}),
+            g: The observed data, as a list over the time bins.
             zero_primal: Whether the primal variable f is known to be zero (the first iteration of a zero initialized model), in which
                 case its forward projection is zero as well and is not computed.
             checkpoint_label: Recurrent mode only: checkpoint each time step on its own, in a region labeled <checkpoint_label>/t<t>.
 
         Returns:
-            A tuple containing the updated (f, h, v) after one iteration of the model.
+            A tuple containing the updated (f, h, v, w) after one iteration of the model. w is consistent with the updated f and v.
         """
 
 
         _validate_input(x)
 
-        f, h, v = x
+        f, h, v, w = x
+        T = self.time_steps
 
-        assert isinstance(f, list) and isinstance(h, list) and isinstance(v, list) and isinstance(g, list), f"Currently, only input as lists of torch.Tensor are supported."
+        assert isinstance(f, list) and isinstance(h, list) and isinstance(v, list) and isinstance(w, list) and isinstance(g, list), f"Currently, only input as lists of torch.Tensor are supported."
         if self.recurrent:
 
             assert isinstance(self.dual_net, nn.ModuleList)
@@ -336,25 +386,31 @@ class HLPDBlock(nn.Module):
             f_t = f[-1] # We initialize t=0 primal variable with the last time step from the previous iteration
             h_t = h[-1] # We initialize t=0 dual variable with the last time step from the previous iteration
             v_t = v[-1] # We initialize t=0 registration variable with the last time step from the previous iteration
+            w_t = w[0]  # The prediction of t=0 by the motion of the last time step, from the previous iteration
 
 
 
             f_pred = []
             h_pred = []
             v_pred = []
+            w_pred: list[torch.Tensor] = [w[0]] * T  # w_pred[t+1] is set in time step t, and w_pred[0] in the last one
 
-            for t in range(self.time_steps):
+            for t in range(T):
+                # NOTE: the last time step maps to the first one, whose iterate of the current iteration is already known.
+                f_target = f_pred[0] if t == T - 1 else f[t + 1]
+                args = (t, f[t], h[t], v[t], w_t, f_t, h_t, v_t, f_target, w[(t + 1) % T], g[t], zero_primal)
                 # NOTE: with checkpoint_label, each time step is checkpointed on its own (see HLPDUnrolled). Its inputs are kept anyway, as
                 # they are iterates or data, so only the activations of a single time step are held during the backward pass.
                 if checkpoint_label is not None:
-                    f_t, h_t, v_t = cast(Tuple[torch.Tensor, torch.Tensor, torch.Tensor], checkpoint(
-                        self._labeled_time_step, f"{checkpoint_label}/t{t}", t, f[t], h[t], v[t], f_t, h_t, v_t, g[t], zero_primal, use_reentrant=False))
+                    f_t, h_t, v_t, w_t = cast(Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor], checkpoint(
+                        self._labeled_time_step, f"{checkpoint_label}/t{t}", *args, use_reentrant=False))
                 else:
-                    f_t, h_t, v_t = self._time_step(t, f[t], h[t], v[t], f_t, h_t, v_t, g[t], zero_primal)
+                    f_t, h_t, v_t, w_t = self._time_step(*args)
 
                 f_pred.append(f_t)
                 h_pred.append(h_t)
                 v_pred.append(v_t)
+                w_pred[(t + 1) % T] = w_t
 
         else:
             assert isinstance(self.dual_net, ConvStack)
@@ -366,6 +422,7 @@ class HLPDBlock(nn.Module):
             f_s = torch.stack(f, dim=1)
             h_s = torch.stack(h, dim=1)
             v_s = torch.cat(v, dim=1)             # (B, 3T, D, H, W) with channel order [v0x, v0y, v0z, v1x, ...]
+            w_s = torch.stack(w, dim=1)
             g_s = torch.stack(g, dim=1)
 
             # NOTE: the updates are residual on the previous iteration, as in the recurrent case.
@@ -385,22 +442,23 @@ class HLPDBlock(nn.Module):
                     torch.cat([
                         f_s,         # same time, previous iteration
                         Tadjh_s,     # adjoint of the updated dual variable
-                        v_s          # previous iteration
+                        w_s          # prediction by the motion, previous iteration
                     ], dim=1))).unbind(dim=1))
 
             with region("hlpd/motion_net"):
                 v_pred: list[torch.Tensor] = list((v_s + self.motion_net(
                     torch.cat([
                         v_s,                            # previous iteration
-                        torch.stack(f_pred, dim=1)      # updated primal variable
+                        torch.stack(f_pred, dim=1),     # updated primal variable
+                        w_s                             # prediction by the motion, previous iteration
                     ], dim=1)
                 )).split(3, dim=1))                     # T tensors of shape (B, 3, D, H, W)
 
+            # w_{t+1} = W(f_t, v_t), cyclically
+            warped = [self._warp(ft, vt) for ft, vt in zip(f_pred, v_pred)]
+            w_pred = warped[-1:] + warped[:-1]
 
-        # Define the forward pass of the iteration model here
-        return (f_pred, h_pred, v_pred)
-
-
+        return (f_pred, h_pred, v_pred, w_pred)
 
 
 class HLPDUnrolled(nn.Module):
@@ -411,7 +469,7 @@ class HLPDUnrolled(nn.Module):
     """
     def __init__(
             self,
-            hlpd_iter_model: HLPDBlock,         # The model used for each iteration of the HLPD process. Maps the triple $(x^{(k)}, y^{(k)}, v^{(k)}) \mapsto (x^{(k+1)}, y^{(k+1)}, v^{(k+1)})$
+            hlpd_iter_model: HLPDBlock,         # The model used for each iteration of the HLPD process. Maps $(f^{(k)}, h^{(k)}, v^{(k)}, w^{(k)}) \mapsto (f^{(k+1)}, h^{(k+1)}, v^{(k+1)}, w^{(k+1)})$
             num_iters: int,                     # The number of iterations to apply the HLPD iteration model.
             shared: bool = False,               # Whether the HLPD iteration model is shared across iterations.
             grad_checkpointing: bool = False,  # Whether to use gradient checkpointing for the HLPD iteration model.
@@ -428,9 +486,9 @@ class HLPDUnrolled(nn.Module):
         if self.shared:
             self.hlpd_model_list = nn.ModuleList([hlpd_iter_model] * self.num_iters)
         else:
-            # NOTE: the ray transform is an analytical operator whose geometry is updated in place (HLPDModel.set_geometry), so it must be shared by all iterations rather than copied.
-            ray_trafo = hlpd_iter_model.ray_trafo
-            self.hlpd_model_list = nn.ModuleList([copy.deepcopy(hlpd_iter_model, memo={id(ray_trafo): ray_trafo}) for _ in range(self.num_iters)])
+            # NOTE: the ray transform and the deformation operator are analytical operators whose geometry is updated in place (HLPDModel.set_geometry), so they must be shared by all iterations rather than copied.
+            ray_trafo, deform = hlpd_iter_model.ray_trafo, hlpd_iter_model.deform
+            self.hlpd_model_list = nn.ModuleList([copy.deepcopy(hlpd_iter_model, memo={id(ray_trafo): ray_trafo, id(deform): deform}) for _ in range(self.num_iters)])
 
     @overload
     def forward(self, x: Tuple[List[torch.Tensor], ...], g: List[torch.Tensor], zero_init: bool = False) -> Tuple[List[torch.Tensor], ...]: ...
@@ -442,12 +500,12 @@ class HLPDUnrolled(nn.Module):
         """Forward pass of the HLPD unrolled model.
 
         Args:
-            x: The input tuple of primal, dual and velocity variables. These are the initialized values for the HLPD iterations (default is zero initialization).
+            x: The input tuple (f, h, v, w) of primal, dual, velocity and predicted (deformed) variables. These are the initialized values for the HLPD iterations (default is zero initialization).
             g: The raw data (e.g., measurements from the imaging system).
             zero_init: Whether the primal variable of x is zero, see HLPDBlock.forward.
 
         Returns:
-            The updated tuple of primal and dual variables after applying the HLPD iterations.
+            The updated tuple (f, h, v, w) after applying the HLPD iterations.
         """
         # Define the forward pass here
 
@@ -533,6 +591,7 @@ class HLPDModel(nn.Module):
 
         self.ray_trafo = RayTransform(**asdict(ray_trafo_params))                     # the physical operator, also used by the projection domain loss
         self.block_ray_trafo = NormalizedRayTransform(self.ray_trafo, T)                # the (normalized) operator used in the HLPD iterations
+        self.units = IterationUnits(self.intensity_scale, self.block_ray_trafo)         # the units of the iterations, also used by the loss
         self._operator_norms: dict[tuple, list[float]] = {}                             # ||T_t|| per geometry, see set_geometry
         self.deform = FlowDeformationOperator(**asdict(deform_params), shape=shape, device=device)
 
@@ -540,14 +599,7 @@ class HLPDModel(nn.Module):
 
         recurrent = block_params.recurrent
 
-        p_in = 6 if recurrent else 5 * self.T
-        p_out = 1 if recurrent else self.T
-
-        d_in = 4 if recurrent else 3 * self.T
-        d_out = 1 if recurrent else self.T
-
-        m_in = 7 if recurrent else 4 * self.T
-        m_out = 3 if recurrent else 3 * self.T
+        p_in, p_out, d_in, d_out, m_in, m_out = net_channels(recurrent, self.T)
 
         # NOTE: the nets and the block are kept as locals so that the only registered copies of the parameters are the ones in self.unrolled_model.
         primal_net = ConvStack(in_channels=p_in, out_channels=p_out, **asdict(conv_stack_params))
@@ -556,7 +608,7 @@ class HLPDModel(nn.Module):
 
         ## ----------------- Build HLPD block
 
-        hlpd_block = HLPDBlock(primal_net, dual_net, sigma_net, self.block_ray_trafo, **asdict(block_params))
+        hlpd_block = HLPDBlock(primal_net, dual_net, sigma_net, self.block_ray_trafo, self.deform, **asdict(block_params))
 
         ## ----------------- Initialize the unrolled HLPD model
 
@@ -591,11 +643,13 @@ class HLPDModel(nn.Module):
 
     def scale_data(self, g: list[torch.Tensor]) -> list[torch.Tensor]:
         """The data g_t (in intensity units, see NormalizationParams.intensity) on the scale of the operator used in the HLPD iterations,
-        i.e. g_t / ||T_t|| when normalizing the operator (see NormalizedRayTransform)."""
+        i.e. g_t / ||T_t|| when normalizing the operator (see NormalizedRayTransform). See IterationUnits.data for physical data."""
         return [NormalizedRayTransform._scale(gt, s) for gt, s in zip(g, self.block_ray_trafo.scales)]
 
-    def initialize(self, g: list[torch.Tensor]) -> Tuple[List[torch.Tensor], ...]:
-        """Zero initialization of (f, h, v), with batch size, device and dtype taken from the data g."""
+    def initialize(self, g: list[torch.Tensor], fbp: list[torch.Tensor] | None = None) -> Tuple[List[torch.Tensor], ...]:
+        """Initialization of (f, h, v, w) in the units of the iterations (self.units), with batch size, device and dtype taken from the
+        data g: zeros, or the FBP of g and g itself (zero_init=False). g and fbp are physical. The FBP is computed from g unless it is
+        given, e.g. as stored by the data pipeline (see HLPDModel.forward). The prediction w is initialized as f."""
 
         B = g[0].shape[0]
         kwargs = {"device": g[0].device, "dtype": g[0].dtype}
@@ -608,36 +662,40 @@ class HLPDModel(nn.Module):
             h0 = [torch.zeros((B, *self.sino_shape), **kwargs) for t in range(self.T)]
         else:
             # FBP initilization 
-            f0 = self.ray_trafo.FBP(g)   # NOTE: FBP inverts the physical operator, so it gets the unscaled data
-            h0 = self.scale_data(g)
-        
-        return (f0, h0, v0)
+            # NOTE: FBP inverts the physical operator, so it gets the physical data. Computing it is slow at full resolution (odl filters
+            # on the CPU, most of the ~11 s per step outside the timed regions of an FBP initialized overfit run), so the training scripts
+            # pass the FBP stored by the data pipeline instead.
+            f0 = self.units.images(fbp if fbp is not None else self.ray_trafo.FBP(g))
+            h0 = self.units.data(g)
+        w0 = list(f0)
+
+        return (f0, h0, v0, w0)
 
 
-    def forward(self, g: list[torch.Tensor]) -> tuple[torch.Tensor, List[torch.Tensor]]:
-        """Reconstructs the template and the time dependent velocity fields from the data g (list of T tensors B x nAngles x nCol x nRow).
+    def forward(self, g: list[torch.Tensor], fbp: list[torch.Tensor] | None = None) -> tuple[List[torch.Tensor], List[torch.Tensor], List[torch.Tensor]]:
+        """Reconstructs the time bins and the cyclic motion between them from the data g (list of T tensors B x nAngles x nCol x nRow).
+        fbp: optionally, the FBP of g (list of T tensors B x D x H x W in mm^-1, see data/pipeline.py) for the FBP initialization, which
+             is computed from g otherwise. Ignored with zero initialization.
 
         Returns:
-            f_template: The reconstructed template B x D x H x W (the primal variable of the first time bin).
-            v: List of T velocity fields B x D x H x W x 3, as expected by self.deform. The deformed sequence is self.deform(f_template, v),
-               which the LDDMM loss computes itself, so it is not computed here.
+            w: List of T predictions B x D x H x W of each time bin by the motion, w_t = W(f_{t-1}, v_{t-1}) with w_0 = W(f_{T-1}, v_{T-1}).
+            f: List of T reconstructions B x D x H x W of the time bins.
+            v: List of T velocity fields B x D x H x W x 3, as expected by self.deform, v_t mapping time bin t to t+1 mod T.
+            w and f are in mm^-1.
         """
 
         assert hasattr(self.ray_trafo, "ray_transform"), f"Must initialize the ray_trafo operator before calling the forward method. This is done with self.set_geometry"
 
         # NOTE: in general we will want to update the ray transform to match the geometry of the input. Make sure to do before calling the forward method. 
 
-        # NOTE: the iterations work on images in intensity units (see NormalizationParams.intensity), and on data scaled accordingly, which
-        # is consistent as T is linear: T(c x) = c g. The FBP initialization in self.initialize is then in intensity units as well.
-        c = self.intensity_scale
-        g = [gt * c for gt in g] if c != 1.0 else g
-        x = self.initialize(g)
+        # NOTE: the iterations work on images and data in the units of self.units (see NormalizationParams), as does the loss. w is in
+        # the units of the images as well, as the deformation is linear in the image.
+        x = self.initialize(g, None if self.zero_init else fbp)
 
         with region("hlpd/unrolled"):
-            out: Tuple[List[torch.Tensor], ...] = self.unrolled_model(x, self.scale_data(g), zero_init=self.zero_init)
-        f, h, v = out
+            out: Tuple[List[torch.Tensor], ...] = self.unrolled_model(x, self.units.data(g), zero_init=self.zero_init)
+        f, h, v, w = out
 
         v = [vt.permute(0, 2, 3, 4, 1) for vt in v] # NOTE the flow deformation operator expects List[B, D, H, W, 3]
-        f_template = f[0] / c if c != 1.0 else f[0]  # back to mm^-1
 
-        return (f_template, v)
+        return (self.units.to_physical(w), self.units.to_physical(f), v)

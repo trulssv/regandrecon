@@ -46,10 +46,7 @@ The `data/denoising/` and `data/segmentation/` packages are currently unused.
   - `ResidualHLPDModel`, `HLPDModelWithLoss`, `ResidualHLPDModelWithLoss` — residual-connection and loss-fused variants.
   - `HLPDModelProfiling` — instrumented variant for timing/profiling the iterations.
   - `RecurentHLPD` — a recurrent-style variant of the model.
-- **`model/loss/loss.py`** — `HLPDLoss` combines, per configurable weights (`model/loss/loss.json`):
-  - image-domain data/consistency losses (`l1`, `l2`, `ssim`, `ngf`, VGG16 perceptual loss),
-  - regularization on the predicted velocity field (`helmholtz` norm, spatio-temporal total variation, a "drift" penalty).
-- **`model/loss/quality_measures.py`** — standalone metric implementations (MSE, SSIM, NGF, Helmholtz norm, VGG16 perceptual distance) used both in the loss and for evaluation reporting.
+- **`model/hlpd_loss.py`** — `HLPDLoss`, the joint reconstruction and registration loss of the model's outputs (w, f, v): a data term per time bin (projection or image domain), the coupling `||w_t - f_t||^2` of each reconstruction and its prediction by the cyclic motion, and the Helmholtz regularization of the velocities. Computed in the normalized units of the iterations (`IterationUnits` in `model/hlpd.py`). Weights in the `loss` section of the training config (`LossParams` in `model/build.py`).
 
 ## Training & evaluation (`train/`)
 
@@ -82,7 +79,6 @@ Behavior is driven by JSON config files rather than CLI flags:
 - `data/configs/preprocess.json` — target volume shape, HU/normalization ranges, attenuation of water and air, time bins, train/val/test split ratios.
 - `data/configs/ray_trafo/<geometry>.json` — CT geometry (`parallel3d`, `conebeam`), detector shape/extent, source/detector radii, gantry speed, views and photon flux per time bin.
 - `model/model.json` — channel widths for the λ/γ/σ CNN blocks, number of HLPD unrolled iterations, dropout, batch norm.
-- `model/loss/loss.json` — per-term loss weights (image data/consistency terms, regularization terms).
 - `train/train.json` — optimizer/scheduler settings, epoch count, logging/checkpoint intervals and directory, device, batch size.
 
 Generated: each simulated dataset directory holds `config.json` (the exact simulation config), `splits.json` and `runs.jsonl` (one record per run). See [`data/README.md`](data/README.md#tracking-parameters). The model code still reads the removed `data/data_pipeline_run_config.json` and is due for a rewrite.

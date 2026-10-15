@@ -2,13 +2,16 @@
 The data pipeline (see data/README.md): builds the simulated dataset from the quality assessment of data/triage.py.
 1. Patient-grouped train-val-test split (make_splits).
 2. Preprocessing of each study to attenuation values in mm^-1 (data.transforms.DataTransform).
-3. Forward projection of each time bin with its own RayTransform geometry, giving clean (noise-free) line integrals.
-   Noise is added on the fly by the quality loader (data.loaders.get_quality_loader with data.transforms.PoissonNoise).
+3. Forward projection of each time bin with its own RayTransform geometry, with Poisson noise (RayTransform.add_poisson_noise).
+4. FBP of each time bin's (noisy) sinogram, e.g. for the FBP initialization of HLPD (data.loaders.get_quality_loader with load_fbp).
+   Studies simulated before the FBPs were stored get them on the next run of the pipeline, from their stored sinograms.
 
 Run: data/scripts/simulate.sh [--qualities high medium] [--geometry parallel3d|conebeam] [--max-studies N] [--overwrite]
 """
 import argparse
+import json
 import logging
+import os
 from pathlib import Path
 
 import torch
@@ -121,13 +124,14 @@ def select_subset(studies: dict, ratios: dict[str, float], n: int, seed: int = 4
 
 
 
-def simulate_study(study_dir: Path, transform: DataTransform, ray_cfg: dict, time_step: float) -> tuple[torch.Tensor, torch.Tensor, dict]:
+def simulate_study(study_dir: Path, transform: DataTransform, ray_cfg: dict, time_step: float) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, dict]:
     """
     Preprocesses and forward projects one raw study.
 
     output:
         volume: (T, D, H, W) attenuation values in mm^-1.
-        sinogram: (T, views, cols, rows) clean line integrals, one geometry per time bin.
+        sinogram: (T, views, cols, rows) noisy line integrals, one geometry per time bin.
+        fbp: (T, D, H, W) the FBP of each time bin's sinogram, in mm^-1.
         meta: The scan info with the voxel spacing of the preprocessed grid (spacing * shape = extent), plus raw_scan_info, raw_shape,
               shape, extent, n_time_bins and time_steps.
     """
@@ -153,7 +157,7 @@ def simulate_study(study_dir: Path, transform: DataTransform, ray_cfg: dict, tim
     with torch.no_grad():
         y = ray_trafo([xt.unsqueeze(0) for xt in x])  # odl's OperatorModule needs a leading batch axis: list of T (1, views, cols, rows)
         y = ray_trafo.add_poisson_noise(y)
-    
+        fbp = ray_trafo.FBP(y)
 
     d, h, w = shape
     meta = {
@@ -167,7 +171,23 @@ def simulate_study(study_dir: Path, transform: DataTransform, ray_cfg: dict, tim
         "n_time_bins": n_time_bins,
         "time_steps": time_steps,
     }
-    return torch.stack(x, dim=0), torch.cat(y, dim=0), meta  # (T, D, H, W), (T, views, cols, rows)
+    return torch.stack(x, dim=0), torch.cat(y, dim=0), torch.cat(fbp, dim=0), meta  # (T, D, H, W), (T, views, cols, rows), (T, D, H, W)
+
+
+def study_fbp(sinogram: torch.Tensor, meta: dict, ray_cfg: dict) -> torch.Tensor:
+    """The FBP (T, D, H, W) of a stored sinogram (T, views, cols, rows), with the geometry it was simulated with (see simulate_study)."""
+    shape, extent = tuple(meta["shape"]), tuple(meta["extent"])
+    ray_trafo = RayTransform(**ray_cfg, extent=extent, shape=shape)
+    ray_trafo._init_ray_transform(shape=shape, extent=extent, time_steps=[float(dt) for dt in meta["time_steps"]])
+    with torch.no_grad():
+        return torch.cat(ray_trafo.FBP([yt.unsqueeze(0) for yt in sinogram]), dim=0)
+
+
+def save_atomic(tensor: torch.Tensor, path: Path) -> None:
+    """torch.save that never leaves a partially written file behind, e.g. when an FBP is added to a finished study and the run is interrupted."""
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    torch.save(tensor, tmp)
+    os.replace(tmp, path)
 
 
 def data_pipeline(qualities: tuple[str, ...] = ("high",), geometry: str = DEFAULT_GEOMETRY, out_root: Path | None = None, overwrite: bool = False,
@@ -175,8 +195,10 @@ def data_pipeline(qualities: tuple[str, ...] = ("high",), geometry: str = DEFAUL
     """
     Builds the simulated dataset: splits the assessed studies, then preprocesses and simulates each study of the given qualities.
 
-    Each study is saved to out_root/<quality>/<split>/<study_id>/ as volume.pt (T, D, H, W), sinogram.pt (T, views, cols, rows) and meta.json.
-    Studies that are already done are skipped unless overwrite is set, so an interrupted run can simply be restarted.
+    Each study is saved to out_root/<quality>/<split>/<study_id>/ as volume.pt (T, D, H, W), sinogram.pt (T, views, cols, rows),
+    fbp.pt (T, D, H, W) and meta.json. Studies that are already done are skipped unless overwrite is set, so an interrupted run can simply
+    be restarted. Done studies without fbp.pt (simulated before the FBPs were stored) get it from their stored sinogram, which keeps
+    their noise realization.
 
     Bookkeeping in out_root (see tracking/run.py):
         config.json   the simulation config (preprocessing, ray transform, time step). An out_root only ever holds data of a single config.
@@ -224,7 +246,8 @@ def data_pipeline(qualities: tuple[str, ...] = ("high",), geometry: str = DEFAUL
             n_time_bins=preprocess_cfg["time_bins"],
         )
         save_json_atomic(splits_path, splits)
-        run.results.update({"quality_assessment_hash": file_hash(quality_assessment_path), "splits_hash": config_hash(splits), "simulated": [], "skipped": []})
+        run.results.update({"quality_assessment_hash": file_hash(quality_assessment_path), "splits_hash": config_hash(splits), "simulated": [], "skipped": [],
+                            "fbp_added": []})
 
         transform = DataTransform.from_config(preprocess_cfg)
 
@@ -236,10 +259,16 @@ def data_pipeline(qualities: tuple[str, ...] = ("high",), geometry: str = DEFAUL
         for study_id, info in tqdm(studies.items(), desc="Simulating studies"):
             study_out = out_root / info["quality"] / info["split"] / study_id
             if (study_out / "done").exists() and not overwrite:
+                if not (study_out / "fbp.pt").exists():
+                    with open(study_out / "meta.json") as f:
+                        study_meta = json.load(f)
+                    save_atomic(study_fbp(torch.load(study_out / "sinogram.pt", map_location="cpu"), study_meta, config["ray_trafo"]), study_out / "fbp.pt")
+                    run.results["fbp_added"].append(study_id)
+                    logger.info("Added the FBP of %s (%s/%s)", study_id, info["quality"], info["split"])
                 run.results["skipped"].append(study_id)
                 continue
 
-            x, y, meta = simulate_study(Path(info["study_dir"]), transform, config["ray_trafo"], config["time_step"])
+            x, y, fbp, meta = simulate_study(Path(info["study_dir"]), transform, config["ray_trafo"], config["time_step"])
             meta.update({"study_id": study_id, "quality": info["quality"], "split": info["split"], "geometry": geometry,
                          "config_hash": run.config_hash, "run_id": run.run_id})
 
@@ -247,13 +276,15 @@ def data_pipeline(qualities: tuple[str, ...] = ("high",), geometry: str = DEFAUL
             (study_out / "done").unlink(missing_ok=True)
             torch.save(x, study_out / "volume.pt")
             torch.save(y, study_out / "sinogram.pt")
+            torch.save(fbp, study_out / "fbp.pt")
             save_json_atomic(study_out / "meta.json", meta)
             (study_out / "done").touch()
 
             run.results["simulated"].append(study_id)
             logger.info("Simulated %s (%s/%s): volume %s, sinogram %s", study_id, info["quality"], info["split"], tuple(x.shape), tuple(y.shape))
 
-        logger.info("Simulated %d studies, skipped %d already done.", len(run.results["simulated"]), len(run.results["skipped"]))
+        logger.info("Simulated %d studies, skipped %d already done (of which %d got their FBP added).", len(run.results["simulated"]),
+                    len(run.results["skipped"]), len(run.results["fbp_added"]))
 
 
 def main():
