@@ -220,6 +220,10 @@ class IterationUnits:
         """The normalized operator applied to images in mm^-1, comparable to self.data(g)."""
         return self.ray_trafo(self.images(x))
 
+    def project_bin(self, x: torch.Tensor, t: int) -> torch.Tensor:
+        """The normalized operator of time bin t applied to an image in mm^-1, comparable to self.data(g)[t]."""
+        return self.ray_trafo.forward_bin(self.images([x])[0], t)
+
 
 def net_channels(recurrent: bool, T: int) -> tuple[int, int, int, int, int, int]:
     """The (in, out) channels of the primal, dual and motion nets of an HLPDBlock, see HLPDBlock._time_step and HLPDBlock.forward."""

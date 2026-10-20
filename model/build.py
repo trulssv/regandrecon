@@ -42,6 +42,10 @@ def configure_cuda(exact_fp32: bool = False) -> None:
 class LossParams:
     domain: str = "image"                                               # "image" (supervised, needs volumes) or "projection" (unsupervised)
     lambda_coupling: float = 1.0                                        # weight of the coupling ||w_t - f_t||^2 of the reconstructions and their predictions by the motion
+    lambda_registered: float = 1.0                                      # weight of the registered data term, the reconstructions moved to the next time bins against their data
+    registered_gaps: int | None = None                                  # number of next time bins in the registered data term, None for the number the geometry needs for complete data
+    lambda_window: float = 0.0                                          # weight of the window term, the mean of 2K+1 time bins against their data (biased towards no motion, a warm-up at most)
+    window_k: int = 1                                                   # K of the window term
     lambda_reg: float = 1e-6                                            # weight of the Helmholtz regularization of the velocity fields
     helmholtz: tuple[float, float, float] = (1.0, 1.0, 1.0)             # (alpha, gamma, beta) of the Helmholtz operator
 
@@ -100,7 +104,9 @@ def build_hlpd(config: HLPDConfig, ray_trafo_params: RayTrafoParams, T: int, sha
     alpha, gamma, beta = config.loss.helmholtz
     helmholtz_op = HelmholtzOperator(dim=3, alpha=alpha, gamma=gamma, beta=beta, extent=None, device=device)
     # NOTE: the loss shares the model's units, so that it is computed with the same normalization as the iterations.
-    loss = HLPDLoss(helmholtz_op, model.units, domain=config.loss.domain, lambda_coupling=config.loss.lambda_coupling, lambda_reg=config.loss.lambda_reg)
+    lp = config.loss
+    loss = HLPDLoss(helmholtz_op, model.units, model.deform, domain=lp.domain, lambda_coupling=lp.lambda_coupling, lambda_registered=lp.lambda_registered,
+                    registered_gaps=lp.registered_gaps, lambda_window=lp.lambda_window, window_k=lp.window_k, lambda_reg=lp.lambda_reg)
     return model, loss
 
 

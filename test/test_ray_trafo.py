@@ -341,6 +341,35 @@ def test_coupling_with_flow_deformation():
     assert run_coupling_demo()
 
 
+@pytest.mark.parametrize("gantry_speed, expected", [(torch.pi / 2, 2), (torch.pi / 4, 4), (torch.pi / 3, 3), (torch.pi, 1)])
+def test_bins_for_complete_data_parallel(gantry_speed, expected):
+    """With an arc of gantry_speed per time bin, a parallel beam needs ceil(pi / arc) consecutive time bins for complete data."""
+    rt = RayTransform(geometry="Parallel3dAxisGeometry", nDetectorCols=8, DetectorColExtent=240.0, GantrySpeed=gantry_speed, nViews=8,
+                      Flux=1e14, nDetectorRows=4, DetectorRowExtent=160.0, rotAxis=(1.0, 0.0, 0.0), source_radius=None, det_radius=None,
+                      extent=None, shape=None)
+    rt._init_ray_transform((4, 6, 6), (160.0, 200.0, 240.0), [1.0] * 8)
+    assert rt.required_arc() == pytest.approx(torch.pi)
+    assert rt.bin_arcs() == pytest.approx([gantry_speed] * 8)
+    assert rt.bins_for_complete_data() == expected
+
+
+def test_bins_for_complete_data_cone_beam_needs_a_short_scan():
+    """A cone beam needs pi plus the fan angle, so 90 degree time bins need 3 rather than 2."""
+    rt = RayTransform(geometry="ConeBeamGeometry", nDetectorCols=8, DetectorColExtent=400.0, GantrySpeed=torch.pi / 2, nViews=8, Flux=1e14,
+                      nDetectorRows=4, DetectorRowExtent=160.0, rotAxis=(1.0, 0.0, 0.0), source_radius=750.0, det_radius=750.0,
+                      extent=None, shape=None)
+    assert rt.required_arc() == pytest.approx(torch.pi + 2 * np.arctan(200.0 / 1500.0))
+    rt._init_ray_transform((4, 6, 6), (160.0, 200.0, 240.0), [1.0] * 8)
+    assert rt.bins_for_complete_data() == 3
+
+
+def test_bins_for_complete_data_with_unequal_bins():
+    from operators.tomo.ray_trafo import bins_for_complete_data
+    assert bins_for_complete_data([1.0, 2.0, 1.0, 2.0], 3.0) == 2
+    assert bins_for_complete_data([1.0, 1.0, 2.0, 1.0], 3.0) == 3   # the window (bins 0, 1) only covers 2
+    assert bins_for_complete_data([0.5] * 4, 3.0) == 4              # all bins, even though they do not cover the arc
+
+
 def test_geometry_cache_and_lazy_fbp():
     """Switching back to a geometry reuses its operators, and the FBP operators are only built on first use, per geometry."""
     rt = RayTransform(geometry="Parallel2dGeometry", nDetectorCols=64, DetectorColExtent=100.0, GantrySpeed=torch.pi, nViews=32, Flux=1e14,

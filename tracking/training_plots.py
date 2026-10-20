@@ -8,6 +8,7 @@ Plots that are rewritten during training, so that a run can be followed while it
 Every file is written to a temporary file first and then moved into place, so a viewer never reads a half written file.
 """
 import os
+import shutil
 from pathlib import Path
 
 import matplotlib
@@ -24,6 +25,8 @@ from tracking.timeline import FORWARD_KEYS, MemorySample, RegionEvent, phases
 FORWARD_COLOR = "#4C72B0"
 BACKWARD_COLOR = "#DD8452"
 OTHER_COLOR = "#8C8C8C"
+REGISTERED_COLOR = "#55A868"
+WINDOW_COLOR = "#8172B3"
 
 
 def _save_atomic(fig: Figure, path: Path) -> None:
@@ -121,10 +124,11 @@ def plot_losses(history: list[dict[str, float]], path: Path, zero_prediction_mse
     validation metrics (same keys, with the step they were computed at) and is drawn as markers on top."""
     steps = [h["step"] for h in history]
     fig, (ax_loss, ax_mse) = plt.subplots(1, 2, figsize=(12, 4))
-    for key, color in (("total_loss", "k"), ("data_loss", FORWARD_COLOR), ("coupling_loss", OTHER_COLOR), ("regularization_loss", BACKWARD_COLOR)):
-        if key not in history[-1]:
+    for key, color in (("total_loss", "k"), ("data_loss", FORWARD_COLOR), ("coupling_loss", OTHER_COLOR), ("registered_loss", REGISTERED_COLOR),
+                       ("window_loss", WINDOW_COLOR), ("regularization_loss", BACKWARD_COLOR)):
+        if key not in history[-1] or not any(h[key] > 0 for h in history):  # also skips the terms that are switched off
             continue
-        ax_loss.plot(steps, [h[key] for h in history], color=color, lw=1, label=key + (" (unweighted)" if key in ("coupling_loss", "regularization_loss") else ""))
+        ax_loss.plot(steps, [h[key] for h in history], color=color, lw=1, label=key + (" (unweighted)" if key != "total_loss" and key != "data_loss" else ""))
         if val_history:
             ax_loss.plot([h["step"] for h in val_history], [h[key] for h in val_history], color=color, ls="none", marker="o", ms=4, mfc="white")
     if val_history:
@@ -171,12 +175,18 @@ def plot_prediction_gif(
     step: int,
     fps: int = 3,
     x_warped: list[torch.Tensor] | None = None,
+    epoch: int | None = None,
+    history_dir: Path | None = None,
 ) -> None:
     """GIF over the time bins of the ground truth, the reconstruction, (if given) its prediction by the motion and the velocity field,
     in the axial, coronal and sagittal mid planes (first batch element). x_pred, x_true and x_warped are T tensors (B, D, H, W) and v
     is T tensors (B, D, H, W, 3) with
     grid_sample's (x, y, z) = (W, H, D) channel order, see FlowDeformationOperator. The velocity is shown as RGB = (x, y, z), mapped
-    symmetrically around gray (zero velocity) with a common scale for all time bins."""
+    symmetrically around gray (zero velocity) with a common scale for all time bins.
+
+    The title shows the epoch (if given) and step of the prediction. With history_dir, the GIF is also kept as
+    history_dir/prediction_<epoch and/or step>.gif, so that the GIFs of all steps are kept rather than only the latest at path (which
+    image viewers may also cache, and keep showing an earlier version of)."""
     planes = list(PLANES)
     true = [xt[0].detach().float().cpu().numpy() for xt in x_true]
     pred = [xp[0].detach().float().cpu().numpy().reshape(true[0].shape) for xp in x_pred]
@@ -216,7 +226,7 @@ def plot_prediction_gif(
     def update(t: int):
         for im, frame, plane in ims:
             im.set_data(frame(t, plane))
-        title.set_text(f"Step {step}, time bin {t + 1}/{len(true)}")
+        title.set_text(f"{f'Epoch {epoch}, ' if epoch is not None else ''}Step {step}, time bin {t + 1}/{len(true)}")
         return [im for im, _, _ in ims] + [title]
 
     update(0)
@@ -225,4 +235,8 @@ def plot_prediction_gif(
     tmp = path.with_name(f".{path.stem}.tmp{path.suffix}")
     anim.save(tmp, writer=PillowWriter(fps=fps))
     plt.close(fig)
+    if history_dir is not None:
+        history_dir.mkdir(parents=True, exist_ok=True)
+        name = f"epoch{epoch:05d}_step{step:06d}" if epoch is not None else f"step{step:06d}"
+        shutil.copyfile(tmp, history_dir / f"prediction_{name}.gif")
     os.replace(tmp, path)

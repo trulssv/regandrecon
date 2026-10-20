@@ -6,9 +6,10 @@ from typing import overload
 
 class HelmholtzOperator(nn.Module):
     r"""This class implements the Helmholtz operator, which is used in the HLPD model to regularize the velocity field. 
-    The Helmholtz operator is defined as $L = (\\gamma I - \\alpha^2 \Delta)^\\beta$, where $I$ is the identity operator, $\\alpha$ is a regularization parameter, 
-    and $\\Delta$ is the Laplacian operator. The inverse of the Helmholtz operator can be efficiently computed in the Fourier domain, 
-    which allows for fast regularization of the velocity field during training. Extent specifies the physical size of the spatial dimensions.
+    The Helmholtz operator is defined as $L = (\\alpha I - \\gamma \Delta)^\\beta$, where $I$ is the identity operator and $\\Delta$ is the
+    (vector) Laplacian, applied in the Fourier domain as the multiplier $(\\alpha + \\gamma 4 \\pi^2 |k|^2)^\\beta$ with the frequencies k in cycles
+    per unit of the extent (mm), i.e. with periodic boundary conditions. Extent specifies the physical size of the spatial dimensions (unit
+    spacing if None), so gamma is in squared units of the extent: the Laplacian dominates for wavelengths below 2 pi sqrt(gamma / alpha).
     
     input:
         v (torch.Tensor or list[torch.Tensor]): The input velocity field(s) to which the Helmholtz operator will be applied. 

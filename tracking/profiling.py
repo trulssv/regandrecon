@@ -5,7 +5,7 @@ StepStats measures each training step: wall time, peak GPU memory, and GPU utili
 enough to run on every step and its output can be passed straight to RunRecord.log_metrics.
 
 make_profiler wraps torch.profiler for a few steps, and module_time_table summarizes the time spent in the record_function
-regions of the model and loss (labels starting with "hlpd/" and "loss/", see model/hlpd.py and operators/lddmm/lddmm_loss.py).
+regions of the model and loss (labels starting with "hlpd/" and "loss/", see model/hlpd.py and model/hlpd_loss.py).
 The labels are no-ops when no profiler is running, so the model itself needs no profiling specific code path.
 
 NOTE: With gradient checkpointing, the forward pass of each checkpointed block runs again during backward, so the hlpd/ regions

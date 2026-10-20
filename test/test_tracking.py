@@ -67,3 +67,47 @@ def test_pin_config(tmp_path):
     assert pin_config(path, {"a": 1}) == h  # same config: fine
     with pytest.raises(ConfigMismatchError):
         pin_config(path, {"a": 2})
+
+
+def test_key_step_times_count_nested_regions_once():
+    """A region nested in a key step (e.g. the warps of the registered data term) is part of that key step, not a key step of its own,
+    and the recompute of a checkpointed block during backward is not counted as forward time."""
+    import time
+
+    import torch
+
+    from tracking.timeline import StepTimeline, region
+
+    timeline = StepTimeline(torch.device("cpu"))
+    with timeline.record():
+        with region("step/forward"):
+            with region("hlpd/deform"):
+                time.sleep(0.01)
+        with region("step/loss"):
+            with region("loss/registered"):
+                with region("loss/registered/deform"):
+                    time.sleep(0.02)
+        with region("step/backward"):
+            with region("hlpd/deform"):   # a recompute
+                time.sleep(0.05)
+
+    times = timeline.history[-1]
+    assert "loss/registered/deform" not in times
+    assert 0.02 <= times["loss/registered"] < 0.05
+    assert 0.01 <= times["hlpd/deform"] < 0.05
+
+
+def test_prediction_gif_keeps_every_version(tmp_path):
+    """With history_dir, every GIF is also kept under a name with its epoch and step, next to the latest one."""
+    import torch
+
+    from tracking.training_plots import plot_prediction_gif
+
+    x = [torch.rand(1, 4, 6, 6) for _ in range(2)]
+    v = [torch.zeros(1, 4, 6, 6, 3) for _ in range(2)]
+    for epoch, step in ((0, 0), (1, 10)):
+        plot_prediction_gif(x, x, v, (8.0, 6.0, 6.0), tmp_path / "prediction.gif", step, x_warped=x, epoch=epoch, history_dir=tmp_path / "gifs")
+
+    assert (tmp_path / "prediction.gif").exists()
+    assert sorted(p.name for p in (tmp_path / "gifs").iterdir()) == ["prediction_epoch00000_step000000.gif", "prediction_epoch00001_step000010.gif"]
+    assert (tmp_path / "prediction.gif").read_bytes() == (tmp_path / "gifs" / "prediction_epoch00001_step000010.gif").read_bytes()

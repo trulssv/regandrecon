@@ -68,6 +68,10 @@ class MockRayTransform:
     def adjoint(self, y: list[torch.Tensor]) -> list[torch.Tensor]:
         return [self.adjoint_bin(yt, t) for t, yt in enumerate(y)]
 
+    def bins_for_complete_data(self) -> int:
+        """As for 90 degree time bins of a parallel beam."""
+        return 2
+
     def FBP(self, y: list[torch.Tensor]) -> list[torch.Tensor]:
         """A linear stand-in for the FBP, which is all that the scaling of the data needs."""
         return self.adjoint(y)
@@ -220,7 +224,7 @@ def test_hlpd_model_trains_with_hlpd_loss(monkeypatch: pytest.MonkeyPatch, domai
     """One training step with the loss in the image or projection domain reaches every parameter and lowers the loss."""
     model = make_hlpd_model(monkeypatch, recurrent=recurrent)
     helmholtz_op = HelmholtzOperator(dim=3, extent=model.extent)
-    loss_fn = HLPDLoss(helmholtz_op, model.units, domain=domain, lambda_coupling=1.0, lambda_reg=1e-3)
+    loss_fn = HLPDLoss(helmholtz_op, model.units, model.deform, domain=domain, lambda_coupling=1.0, lambda_registered=1.0, lambda_window=0.5, lambda_reg=1e-3)
 
     torch.manual_seed(1)
     x_true = [torch.rand(B, *SHAPE) for _ in range(T)]
@@ -239,8 +243,14 @@ def test_hlpd_model_trains_with_hlpd_loss(monkeypatch: pytest.MonkeyPatch, domai
         optimizer.step()
         losses.append(loss.total_loss.item())
 
-    assert loss.coupling_loss.item() > 0
+    assert loss.coupling_loss.item() > 0 and loss.registered_loss.item() > 0 and loss.window_loss.item() > 0
     assert losses[1] < losses[0]
+
+
+def make_image_loss(**kwargs) -> HLPDLoss:
+    """The loss in the image domain and in physical units (with the 2 time bins for complete data of the mock ray transform)."""
+    units = IterationUnits(1.0, NormalizedRayTransform(make_ray_trafo(), T))  # type: ignore[arg-type]
+    return HLPDLoss(HelmholtzOperator(dim=3, extent=EXTENT), units, make_deform(), domain="image", **kwargs)
 
 
 def test_hlpd_loss_terms() -> None:
@@ -249,8 +259,7 @@ def test_hlpd_loss_terms() -> None:
     f = [torch.rand(B, *SHAPE) for _ in range(T)]
     y = [torch.rand(B, *SHAPE) for _ in range(T)]
     v = [torch.randn(B, *SHAPE, 3) for _ in range(T)]
-    units = IterationUnits(1.0, NormalizedRayTransform(make_ray_trafo(), T))  # type: ignore[arg-type]
-    loss_fn = HLPDLoss(HelmholtzOperator(dim=3, extent=EXTENT), units, domain="image", lambda_coupling=2.0, lambda_reg=0.5)
+    loss_fn = make_image_loss(lambda_coupling=2.0, lambda_registered=0.25, lambda_window=0.125, window_k=1, lambda_reg=0.5)
 
     matched = loss_fn(f, f, v, y)
     assert matched.coupling_loss.item() == 0.0
@@ -259,7 +268,73 @@ def test_hlpd_loss_terms() -> None:
     loss = loss_fn(w, f, v, y)
     torch.testing.assert_close(loss.coupling_loss, torch.tensor(T * 0.01))
     torch.testing.assert_close(loss.data_loss, torch.stack([torch.mean((ft - yt) ** 2) for ft, yt in zip(f, y)]).sum())
-    torch.testing.assert_close(loss.total_loss, loss.data_loss + 2.0 * loss.coupling_loss + 0.5 * loss.regularization_loss)
+    # One gap: the predictions w_t against the targets of their time bins.
+    torch.testing.assert_close(loss.registered_loss, torch.stack([torch.mean((wt - yt) ** 2) for wt, yt in zip(w, y)]).sum())
+    # The window of the 3 time bins around t, against each of their targets.
+    fbar = [(f[t - 1] + f[t] + f[(t + 1) % T]) / 3 for t in range(T)]
+    expected_window = sum(torch.mean((fbar[t] - y[(t + i) % T]) ** 2) for t in range(T) for i in (-1, 0, 1)) / 3
+    torch.testing.assert_close(loss.window_loss, expected_window)
+    torch.testing.assert_close(loss.total_loss, loss.data_loss + 2.0 * loss.coupling_loss + 0.25 * loss.registered_loss
+                               + 0.125 * loss.window_loss + 0.5 * loss.regularization_loss)
+
+
+def test_switched_off_terms_are_zero() -> None:
+    torch.manual_seed(0)
+    f, y = [torch.rand(B, *SHAPE) for _ in range(T)], [torch.rand(B, *SHAPE) for _ in range(T)]
+    loss = make_image_loss(lambda_registered=0.0, lambda_window=0.0)(f, f, [torch.zeros(B, *SHAPE, 3) for _ in range(T)], y)
+    assert loss.registered_loss.item() == 0.0 and loss.window_loss.item() == 0.0
+
+
+def test_registered_term_over_more_time_bins_without_motion() -> None:
+    """Without motion, the term with J = 2 gaps compares w_t and f_{t-2} with the target of time bin t, and averages over the gaps."""
+    torch.manual_seed(0)
+    f, w, y = ([torch.rand(B, *SHAPE) for _ in range(T)] for _ in range(3))
+    v = [torch.zeros(B, *SHAPE, 3) for _ in range(T)]
+    loss_fn = make_image_loss(registered_gaps=2)
+    assert loss_fn.gaps() == 2 and make_image_loss().gaps() == 1   # the mock ray transform needs 2 time bins for complete data
+
+    loss = loss_fn(w, f, v, y)
+
+    expected = sum(torch.mean((w[t] - y[t]) ** 2) + torch.mean((f[t - 2] - y[t]) ** 2) for t in range(T)) / 2
+    torch.testing.assert_close(loss.registered_loss, expected, atol=1e-5, rtol=1e-5)
+
+
+def test_registered_term_composes_the_motions() -> None:
+    """The reconstruction of time bin t-2 is moved to time bin t by v_{t-2} and then v_{t-1}: one warp with the composed grid matches
+    two warps in a row up to their interpolation, unlike the composition in the other order (the two shears do not commute), and the
+    grid of a single motion warps exactly as the deformation operator."""
+    shape, extent = (12, 24, 24), (24.0, 48.0, 48.0)
+    deform = FlowDeformationOperator(N=3, integration="euler", shape=shape, extent=extent)
+    loss_fn = make_image_loss()
+    loss_fn.deform = deform
+    z, y, x = torch.meshgrid(*[torch.linspace(-1, 1, s) for s in shape], indexing="ij")
+    f = (torch.sin(3 * y) * torch.cos(2 * x) * torch.cos(z))[None]
+    zero = torch.zeros_like(x)
+    v1 = torch.stack([3.0 * torch.sin(2 * y), zero, zero], dim=-1)[None]   # displacement along x (mm) varying with y
+    v2 = torch.stack([zero, 3.0 * torch.sin(2 * x), zero], dim=-1)[None]   # displacement along y varying with x
+    compose = deform.velocity_integrator._compose
+
+    torch.testing.assert_close(deform.group_action(f, loss_fn._grid(v1)), deform(f, v1))
+
+    sequential = deform(deform(f, v1).squeeze(1), v2).squeeze(1)
+    composed = deform.group_action(f, compose(loss_fn._grid(v1), loss_fn._grid(v2))).squeeze(1)
+    other_order = deform.group_action(f, compose(loss_fn._grid(v2), loss_fn._grid(v1))).squeeze(1)
+    interior = (slice(None), slice(2, -2), slice(2, -2), slice(2, -2))
+    assert (composed - sequential)[interior].abs().max() < 0.01
+    assert (other_order - sequential)[interior].abs().max() > 0.05
+    assert (composed - f)[interior].abs().max() > 0.2   # the motion is not negligible
+
+
+def test_registered_term_reaches_every_motion_on_the_way() -> None:
+    torch.manual_seed(0)
+    loss_fn = make_image_loss(registered_gaps=2, lambda_coupling=0.0, lambda_reg=0.0)
+    f, y = [torch.rand(B, *SHAPE) for _ in range(T)], [torch.rand(B, *SHAPE) for _ in range(T)]
+    v = [(0.3 * torch.randn(B, *SHAPE, 3)).requires_grad_() for _ in range(T)]
+    w = [loss_fn.deform(f[t - 1], v[t - 1]).squeeze(1) for t in range(T)]
+
+    loss_fn(w, f, v, y).registered_loss.backward()
+
+    assert all(vt.grad is not None and vt.grad.abs().sum() > 0 for vt in v)
 
 
 @pytest.mark.parametrize("domain", ["image", "projection"])
@@ -268,7 +343,7 @@ def test_hlpd_loss_uses_the_units_of_the_model(monkeypatch: pytest.MonkeyPatch, 
     """The loss is computed in the units of the iterations: images scaled by the intensity scale c, and data by c / ||T_t||. Without
     normalization, these are the physical units."""
     model = make_hlpd_model(monkeypatch, recurrent=True, normalize=normalize, intensity=intensity)
-    loss_fn = HLPDLoss(HelmholtzOperator(dim=3, extent=model.extent), model.units, domain=domain, lambda_coupling=1.0, lambda_reg=0.0)
+    loss_fn = HLPDLoss(HelmholtzOperator(dim=3, extent=model.extent), model.units, model.deform, domain=domain, lambda_coupling=1.0, lambda_reg=0.0)
     torch.manual_seed(0)
     x_true = [torch.rand(B, *SHAPE) for _ in range(T)]
     f = [torch.rand(B, *SHAPE) for _ in range(T)]
@@ -286,6 +361,9 @@ def test_hlpd_loss_uses_the_units_of_the_model(monkeypatch: pytest.MonkeyPatch, 
         expected_data = sum(torch.mean((c * (ft - xt)) ** 2) for ft, xt in zip(f, x_true))
     torch.testing.assert_close(loss.data_loss, expected_data)
     torch.testing.assert_close(loss.coupling_loss, sum(torch.mean((c * (wt - ft)) ** 2) for wt, ft in zip(w, f)))
+    if domain == "projection":
+        expected_registered = sum(torch.mean((c * st * (model.ray_trafo.forward_bin(wt, t) - gt)) ** 2) for t, (wt, gt, st) in enumerate(zip(w, g, s)))
+        torch.testing.assert_close(loss.registered_loss, expected_registered)
     # The model feeds its iterations the data in the same units.
     for a, b in zip(model.units.data(g), model.scale_data([c * gt for gt in g])):
         torch.testing.assert_close(a, b)
@@ -419,3 +497,29 @@ def test_water_intensity_mode_needs_mu_water() -> None:
     with pytest.raises(AssertionError):
         HLPDModel(HLPDUnrolledParams(num_iters=1), HLPDBlockParams(time_steps=T), CONV_PARAMS, RAY_PARAMS, DeformParams(N=3), T=T, shape=SHAPE,
                   normalization=NormalizationParams(intensity="water"))
+
+
+@pytest.mark.parametrize("recurrent", [True, False])
+def test_every_region_is_a_key_step_of_the_timing_plot(monkeypatch: pytest.MonkeyPatch, recurrent: bool) -> None:
+    """Every region the model and its loss emit (with all loss terms switched on) is a key step of the timing plot, apart from the
+    structural regions (iterations, time steps) and those nested in a key step, so that new operators show up in the plots."""
+    from tracking.timeline import FORWARD_KEYS, StepTimeline, region
+
+    model = make_hlpd_model(monkeypatch, recurrent=recurrent)
+    loss_fn = HLPDLoss(HelmholtzOperator(dim=3, extent=model.extent), model.units, model.deform, domain="projection",
+                       lambda_registered=1.0, registered_gaps=2, lambda_window=1.0)
+    g = [torch.randn(B, *SINO_SHAPE) for _ in range(T)]
+    timeline = StepTimeline(torch.device("cpu"))
+    with timeline.record():
+        with region("step/forward"):
+            w, f, v = model(g)
+        with region("step/loss"):
+            loss_fn(w, f, v, g)
+
+    labels = {e.label for e in timeline.events}
+    structural = {lbl for lbl in labels if lbl.startswith("step/") or lbl == "hlpd/unrolled" or lbl.startswith("hlpd/iter")}
+    nested = {e.label for e in timeline.events if any(parent in FORWARD_KEYS for parent in e.parents)}
+    assert labels - structural - nested <= set(FORWARD_KEYS), f"Regions missing from FORWARD_KEYS: {labels - structural - nested - set(FORWARD_KEYS)}"
+    assert {"hlpd/deform", "loss/data", "loss/coupling", "loss/registered", "loss/window", "loss/helmholtz"} <= set(timeline.history[-1])
+    # The nested regions are not counted twice.
+    assert nested and not nested & set(timeline.history[-1])

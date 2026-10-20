@@ -169,9 +169,14 @@ def phases(events: list[RegionEvent]) -> list[tuple[str, float, float]]:
     return sorted(out, key=lambda p: p[1])
 
 
-# Key steps of the timing plot, in execution order. Forward regions are summed over time bins and iterations.
-FORWARD_KEYS = ("hlpd/ray_trafo", "hlpd/dual_net", "hlpd/ray_trafo_adjoint", "hlpd/primal_net", "hlpd/motion_net",
-                "loss/deform", "loss/ray_trafo", "loss/helmholtz")
+# Key steps of the timing plot, in execution order. Forward regions are summed over time bins and iterations. They must not overlap,
+# as the plot sums them: e.g. loss/registered includes its warps, which are labeled loss/registered/deform (for the profiler) but are
+# not a key step of their own.
+#   hlpd/*:    the updates of the HLPD block (model/hlpd.py), with hlpd/deform the warp w_{t+1} = W(f_t, v_t) after each motion update,
+#   loss/*:    the terms of HLPDLoss (model/hlpd_loss.py), the registered and window terms only when they are switched on,
+#   loss/deform, loss/ray_trafo: LDDMMloss (operators/lddmm/lddmm_loss.py), which the HLPD training no longer uses.
+FORWARD_KEYS = ("hlpd/ray_trafo", "hlpd/dual_net", "hlpd/ray_trafo_adjoint", "hlpd/primal_net", "hlpd/motion_net", "hlpd/deform",
+                "loss/data", "loss/coupling", "loss/registered", "loss/window", "loss/helmholtz", "loss/deform", "loss/ray_trafo")
 
 
 def key_step_times(events: list[RegionEvent]) -> dict[str, float]:

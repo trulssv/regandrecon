@@ -4,6 +4,8 @@ import odl.applications.tomo as tomo
 from odl.contrib.torch import OperatorModule
 from odl.applications.tomo.analytic import filtered_back_projection as _fbp_module
 
+import math
+
 import torch
 import torch.nn.functional as F
 
@@ -169,6 +171,16 @@ def _projection_module(ray_trafo: tomo.RayTransform, adjoint: bool = False) -> t
     if AstraCudaModule.supports(ray_trafo):
         return AstraCudaModule(ray_trafo, adjoint)
     return OperatorModule(ray_trafo.adjoint if adjoint else ray_trafo)
+
+
+def bins_for_complete_data(arcs: Sequence[float], required_arc: float) -> int:
+    """The smallest number m of consecutive time bins (cyclically) whose arcs together cover required_arc, for every window of m bins.
+    All bins if even they do not."""
+    T = len(arcs)
+    for m in range(1, T + 1):
+        if all(sum(arcs[(t - i) % T] for i in range(m)) >= required_arc - 1e-6 for t in range(T)):
+            return m
+    return T
 
 
 class RayTransform:
@@ -512,6 +524,24 @@ class RayTransform:
             return self.fbp_operator(y)
         else:
             raise ValueError("Input must be a list of tensors or a torch.Tensor compatible with the FBP operator.")
+
+    def required_arc(self) -> float:
+        """The gantry rotation in radians needed for complete data: pi for parallel beams, and pi plus the fan angle (a short scan)
+        otherwise. The fan angle is that of the full detector width seen from the source, 2 atan(DetectorColExtent / 2 / (source_radius
+        + det_radius)), which approximates it for curved detectors."""
+        if self.parallel:
+            return torch.pi
+        assert self.source_radius is not None and self.det_radius is not None
+        return torch.pi + 2 * math.atan(self.DetectorColExtent / 2 / (self.source_radius + self.det_radius))
+
+    def bin_arcs(self) -> list[float]:
+        """The arc in radians that each time bin of the current geometry covers."""
+        assert self._geometry_key is not None, "Must initialize the ray transform first, see _init_ray_transform."
+        return [float(p.max_pt[0] - p.min_pt[0]) for p in self.angular_discretizations]
+
+    def bins_for_complete_data(self) -> int:
+        """The number of consecutive time bins of the current geometry that together give complete data, see bins_for_complete_data."""
+        return bins_for_complete_data(self.bin_arcs(), self.required_arc())
 
     def forward_bin(self, x: torch.Tensor, t: int) -> torch.Tensor:
         """Applies the ray transform of time bin t to a single 3D volume B x D x H x W."""

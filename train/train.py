@@ -47,7 +47,7 @@ from tracking.training_plots import plot_gpu_memory, plot_losses, plot_predictio
 
 logger = logging.getLogger(__name__)
 
-METRICS = ("total_loss", "data_loss", "coupling_loss", "regularization_loss", "image_mse", "warp_mse")
+METRICS = ("total_loss", "data_loss", "coupling_loss", "registered_loss", "window_loss", "regularization_loss", "image_mse", "warp_mse")
 
 
 def parse_args() -> argparse.Namespace:
@@ -62,6 +62,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--log-every", type=int, default=10, help="Log the metrics every this many steps.")
     parser.add_argument("--plot-every", type=int, default=25, help="Record the GPU memory and time of the key steps of a step on rank 0 and rewrite the memory, timing and loss plots every this many steps.")
     parser.add_argument("--plot", action=argparse.BooleanOptionalAction, default=True, help="Write the live plots. The prediction GIF is written at every validation.")
+    parser.add_argument("--keep-gifs", action=argparse.BooleanOptionalAction, default=True, help="Also keep each prediction GIF as <plot-dir>/<run_id>/gifs/prediction_epoch<e>_step<s>.gif (about 3 MB each), next to the latest one in prediction.gif.")
     parser.add_argument("--max-steps", type=int, default=None, help="Stop after this many optimizer steps, e.g. for a smoke test.")
     return parser.parse_args()
 
@@ -118,6 +119,7 @@ def step_metrics(loss: HLPDLossTerms, w: list[torch.Tensor], f: list[torch.Tenso
         image_mse = torch.stack([torch.mean((ft - xt) ** 2) for ft, xt in zip(f, x_true)]).mean()
         warp_mse = torch.stack([torch.mean((wt - xt) ** 2) for wt, xt in zip(w, x_true)]).mean()
         return {"total_loss": loss.total_loss.item(), "data_loss": loss.data_loss.item(), "coupling_loss": loss.coupling_loss.item(),
+                "registered_loss": loss.registered_loss.item(), "window_loss": loss.window_loss.item(),
                 "regularization_loss": loss.regularization_loss.item(), "image_mse": image_mse.item(), "warp_mse": warp_mse.item()}
 
 
@@ -314,7 +316,8 @@ def main() -> None:
                         plot_losses(history, plot_dir / "loss.png", zero_prediction_mse, val_history)
                         if first is None:
                             first = {"f": f, "w": w, "x_true": x_true, "v": v, "extent": model.extent}
-                        plot_prediction_gif(first["f"], first["x_true"], first["v"], first["extent"], plot_dir / "prediction.gif", step, x_warped=first["w"])
+                        plot_prediction_gif(first["f"], first["x_true"], first["v"], first["extent"], plot_dir / "prediction.gif", step, x_warped=first["w"],
+                                            epoch=epoch, history_dir=plot_dir / "gifs" if args.keep_gifs else None)
 
             # Checkpoints: every checkpoint_every epochs, the last one, and the best by validation (or training) loss.
             if rank == 0:
