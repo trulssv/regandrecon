@@ -77,6 +77,22 @@ def test_splits_filter_time_bins():
     assert odd_one not in splits["studies"]
 
 
+def test_splits_filter_extents():
+    qa = fake_quality_assessment()
+    study_filter = {"max_axial_extent_mm": 150.0, "max_fov_diameter_mm": 500.0}
+    extents = {study_id: {"object_d": 150.0, "object_diameter": 450.0} for study_id in qa}
+    too_long, too_wide = list(qa)[:2]
+    extents[too_long]["object_d"] = 300.0
+    extents[too_wide]["object_diameter"] = 600.0
+    splits = make_splits(qa, RATIOS, seed=42, study_extents=extents, study_filter=study_filter)
+    assert set(splits["studies"]) == set(qa) - {too_long, too_wide}
+    assert set(splits["left_out"]) == {too_long, too_wide}
+
+    del extents[too_long]
+    with pytest.raises(KeyError):
+        make_splits(qa, RATIOS, seed=42, study_extents=extents, study_filter=study_filter)
+
+
 # ---------------------------------------------------------------------------
 # Preprocessing
 # ---------------------------------------------------------------------------

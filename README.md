@@ -79,6 +79,8 @@ Call `set_geometry(model, loss, meta)` (`model/build.py`) for each study before 
 
 The nets Gamma, Lambda and Sigma are `ConvStack`s: 3D conv layers with GroupNorm (`batch_norm`) and LeakyReLU, whose final layer is zero initialized (`zero_init_final`), so that an untrained model returns its initialization.
 
+The motion nets Sigma can instead be configured by the `motion` section of the model config (`MotionParams` in `model/motion.py`, recurrent model only): `"net": "unet"` replaces the ConvStacks by small 3D U-nets (`UNet3D`, `"unet": {"channels": [16, 32, 64], ...}`, a larger field of view, first downsampling only in-plane), and `"lddmm": {...}` replaces the image inputs of the motion nets by the LDDMM-styled input `a [dW|_{f_t}(v_prev)]^* (W(f_t, v_prev) - f_{t+1})`, the gradient of the warp error with respect to the velocity (`LDDMMBlock`; the adjoint and its approximations, `"method"`, are in `operators/lddmm/adjoint.py`; `"right"` costs about 2 warps, and `"autograd"` cannot be trained with the `grid_pull` backend). `adjoint_scale` a puts the adjoint on the order of the velocities: 1 / its RMS in the body, about 86 for the `water` intensity normalization (see `test/compare_registration_modules.py`, which compares the variants). Without the section, the motion nets are the ConvStacks, as before.
+
 - **Recurrent** (`recurrent = true`): the time bins are updated one after the other within an iteration, so that time bin t sees the iterates (f, h, v) of time bin t-1 of the current iteration and the fresh prediction w_t; time bin 0 sees those of the last time bin from the previous iteration. The nets are separate per time bin, or shared across time bins (`HLPDBlockParams.shared`).
 - **Non-recurrent**: all time bins are stacked as channels of one set of nets (very memory hungry at full resolution), without the inputs from the previous time bin, and w is computed after the motion update.
 - **Sharing and checkpointing**: the block is separate per iteration or shared (`HLPDUnrolledParams.shared`). With `grad_checkpointing`, the recurrent block checkpoints each (iteration, time bin) update, so that the backward pass holds the activations of one time bin at a time.
@@ -98,23 +100,40 @@ The nets Gamma, Lambda and Sigma are `ConvStack`s: 3D conv layers with GroupNorm
 
 `HLPDLoss` is a joint reconstruction and registration loss of the outputs (w, f, v), with P_t = T_t and y_t = g_t in the projection domain (unsupervised), or P_t = id and y_t = x_t, the ground truth volumes, in the image domain (supervised):
 
-| Term | Weight | Definition (summed over the time bins t, cyclically) |
+| Term (config section) | Included by default | Definition (summed over the time bins t, cyclically) |
 |---|---|---|
-| data | 1 | \|\|P_t f_t - y_t\|\|^2 |
-| coupling | `lambda_coupling` | \|\|w_t - f_t\|\|^2 |
-| registered data | `lambda_registered` | 1/J sum_{j=1..J} \|\|P_t W(f_{t-j}, phi_{t-j -> t}) - y_t\|\|^2 |
-| window (optional) | `lambda_window` | 1/(2K+1) sum_{i=-K..K} \|\|P_{t+i} fbar_t - y_{t+i}\|\|^2, fbar_t the mean of f_{t-K}, ..., f_{t+K} |
-| regularization | `lambda_reg` | \|\|L v_t\|\|^2, L the Helmholtz operator |
+| `data` | yes | D(P_t f_t, y_t) |
+| `coupling` | yes | 1/(2K) sum_{0<\|j\|<=K} D(f_{t+j} moved to t, f_t), the j = 1 term D(w_t, f_t) |
+| `registered` | no | 1/J sum_{j=1..J} D(P_t W(f_{t-j}, phi_{t-j -> t}), y_t) |
+| `window` | no | 1/(2K+1) sum_{i=-K..K} D(P_{t+i} fbar_t, y_{t+i}), fbar_t the mean of f_{t-K}, ..., f_{t+K} |
+| `regularization` | yes | \|\|L v_t\|\|^2, L the Helmholtz operator |
+| `supervised_motion` | no | D(W(x_{t-1}, v_{t-1}), x_t), the ground truth volumes moved by the motion (image domain only), to check whether the motion nets can learn the motion independently of the reconstructions |
+| `temporal` | no | \|\|M Delta^n v_t\|\|^2, the first (`order` 1: v_{t+1} - v_t) or second (`order` 2) cyclic difference of the velocities over the time bins, M the identity (`norm` "l2") or L ("helmholtz") |
 
-The norms are means over the voxels or detector pixels, and all terms but the regularization are computed in the units of the iterations.
+Each term has its own section in the `loss` config with `include`, `weight` and, for all but the regularization, its fidelity D: `"fidelity": "mse"` (default), `"l1"` or `"huber"` (with `huber_delta`, scaled so that it equals the squared error below it), e.g.
 
-- The data term of a time bin is blind to the angles it misses (the missing wedge of its limited arc), so the reconstructions keep the limited-angle artifacts. The **registered data term** moves each f_s with the motion to the next J time bins and checks it against their data, which together with its own cover the complete arc. J defaults to the number the geometry needs (`RayTransform.bins_for_complete_data() - 1`: 1 for 90 degree time bins, 3 for 45 degrees), or is set with `registered_gaps`. The term with j = 1 is \|\|P_t w_t - y_t\|\|^2; for j > 1 the motions v_{t-j}, ..., v_{t-1} are composed and f_{t-j} is warped once. It is minimized by the true reconstructions with the true motion, so it also rewards the motion.
+```json
+"loss": {
+    "domain": "image",
+    "data":           {"include": true,  "weight": 1.0,  "fidelity": "huber", "huber_delta": 0.1},
+    "coupling":       {"include": true,  "weight": 5.0,  "fidelity": "mse", "gaps": 3},
+    "registered":     {"include": false, "gaps": null},
+    "window":         {"include": false, "k": 1},
+    "regularization": {"include": true,  "weight": 1e-3, "helmholtz": [1.0, 1.0, 1.0]},
+    "temporal":       {"include": false, "weight": 1e-3, "order": 1, "norm": "l2"},
+    "supervised_motion": {"include": false, "fidelity": "mse"}
+}
+```
+
+Omitted sections and keys take the defaults of the dataclasses in `model/hlpd_loss.py`, and the flat config of earlier runs (`lambda_coupling`, `coupling_gaps`, ..., e.g. in their checkpoints) is still read. The fidelities are means over the voxels or detector pixels, and all terms but the regularizations are computed in the units of the iterations (water units with `"intensity": "water"`, so `huber_delta` 0.1 is 100 HU in the image domain).
+
+- The data term of a time bin is blind to the angles it misses (the missing wedge of its limited arc), so the reconstructions keep the limited-angle artifacts. The **registered data term** moves each f_s with the motion to the next J time bins and checks it against their data, which together with its own cover the complete arc. J defaults to the number the geometry needs (`RayTransform.bins_for_complete_data() - 1`: 1 for 90 degree time bins, 3 for 45 degrees), or is set with the `gaps` of the `registered` section. The term with j = 1 is \|\|P_t w_t - y_t\|\|^2; for j > 1 the motions v_{t-j}, ..., v_{t-1} are composed and f_{t-j} is warped once. It is minimized by the true reconstructions with the true motion, so it also rewards the motion.
 - The **coupling** term ties each reconstruction to its prediction by the motion. The data term must be kept: without it, f_t could follow w_t for any v.
 - The **window** term (off by default) checks the mean of 2K+1 time bins against their data. It is independent of the motion and biased towards no motion, and is meant as a warm-up at most.
 
 ### Config and builder (`model/build.py`)
 
-- `HLPDConfig` holds the model and loss parameters (the `model` section of the training config), with `LossParams` for the loss (`domain`, the weights above, `registered_gaps`, `window_k`, and the Helmholtz `(alpha, gamma, beta)`).
+- `HLPDConfig` holds the model and loss parameters (the `model` section of the training config), with `LossParams` (in `model/hlpd_loss.py`) for the loss: the `domain` and one section per term, see above.
 - `build_hlpd(config, ray_trafo_params, T, shape, device, mu_water)` builds the model and its loss, and `set_geometry(model, loss, meta)` sets a study's geometry in both.
 - `simulation_ray_trafo_params(data_root)` and `simulation_mu_water(data_root)` read the ray transform and the attenuation of water the data under `data_root` was simulated with.
 - `configure_cuda` sets the allocator and cuDNN options of the training scripts (see `model/PERFORMANCE.md`).
@@ -128,6 +147,14 @@ The norms are means over the voxels or detector pixels, and all terms but the re
   ```bash
   torchrun --standalone --nproc_per_node=4 -m train.train --config train/configs/hlpd.json
   python -m train.train --config train/configs/hlpd.json --max-steps 5      # single GPU smoke test
+  ```
+
+  The training can run in **stages** (`training.stages`, see `train/stages.py` and `train/configs/hlpd_staged.json`), each of which trains a subset of the nets (`"train"`: `"dual"`, `"primal"`, `"motion"`) for its `epochs`, with its own learning rate (`"lr"`) and changes of the loss sections (`"loss"`, merged term by term into the model's), e.g. first the reconstruction with the data term, then the motion with all terms, then everything at a lower learning rate. The other nets are frozen, and each stage starts with a new DDP wrapper, optimizer and scheduler. Its best checkpoint is `best_<stage>.pt` (`best.pt` is that of the last stage), and a checkpoint is also written at the end of each stage. `--resume` continues in the stage of the checkpoint's next epoch, restoring the optimizer only within the same stage, and `--resume <ckpt> --start-stage <stage>` starts at the beginning of a stage with only the checkpoint's weights, e.g. to try several motion stages from one reconstruction stage. With `--start-stage`, the `motion` section of the config may differ from the checkpoint's: only its dual and primal nets are then loaded and the motion nets start from zero, e.g. `--config train/configs/hlpd_staged_unet_lddmm.json --resume <run>/best_recon.pt --start-stage motion` for U-net + LDDMM motion nets after a reconstruction stage with ConvStacks. Without `stages`, the training is a single stage with all nets for `epochs` epochs, as before; checkpoints from before the stages resume as before.
+
+  ```bash
+  torchrun --standalone --nproc_per_node=4 -m train.train --config train/configs/hlpd_staged.json
+  train/scripts/train_staged.sh                                       # the same in a tmux session, see train/scripts/train.sh
+  torchrun --standalone --nproc_per_node=4 -m train.train --config train/configs/hlpd_staged.json --resume <run>/best_recon.pt --start-stage motion
   ```
 
 - **`test/train_hlpd_overfit.py`** — overfits the model to a single study, as a check that it can converge at all, with the model and loss parameters as command line options and optional profiling (`--profile`, the time per module).
@@ -149,6 +176,7 @@ Checkpoints are only compatible with the architecture they were trained with: th
 Run `pytest` from the repository root (`pytest.ini` disables ODL's incompatible pytest plugin):
 - `test_ray_trafo.py`: ray transform correctness for all geometries (shapes, adjoint consistency, FBP accuracy), including limited-angle time bins, the number of time bins for complete data, and a coupling with the deformation operator.
 - `test_hlpd.py`: the HLPD model and its loss against a mock ray transform: shapes, gradients, checkpointing, the cyclic predictions w, the normalization, and every loss term.
+- `test_training_stages.py`: the training stages of `train/stages.py`: parsing, the stage of each epoch, and the loss config of each stage.
 - `test_deform_backends.py`: the `grid_sample` and `grid_pull` interpolation backends of the deformation operators.
 - `test_velocity_integration.py`: both integration schemes integrate the full velocity field.
 - `test_jacobian.py`: Jacobian determinants of the deformation operators against closed-form answers in 2D and 3D.
@@ -166,7 +194,7 @@ Tests that need real simulated data are skipped when it is not available. `test_
 - `data/configs/preprocess.json` — target volume shape, HU/normalization ranges, attenuation of water and air, time bins, train/val/test split ratios.
 - `data/configs/ray_trafo/<geometry>.json` — CT geometry (`parallel3d`, `conebeam`), detector shape/extent, source/detector radii, gantry speed, views and photon flux per time bin.
 - `train/configs/hlpd.json` — the training config:
-  - `model`: the `HLPDConfig`, with the sections `unrolled`, `block`, `conv_stack`, `deform`, `normalization` and `loss` (the dataclasses in `model/hlpd.py` and `LossParams` in `model/build.py`), and `zero_init`. The ray transform is not part of it: it is read from the simulated data (`simulation_ray_trafo_params`).
+  - `model`: the `HLPDConfig`, with the sections `unrolled`, `block`, `conv_stack`, `deform`, `normalization`, `motion` (optional, see above) and `loss` (the dataclasses in `model/hlpd.py` and `LossParams` in `model/hlpd_loss.py`), and `zero_init`. The ray transform is not part of it: it is read from the simulated data (`simulation_ray_trafo_params`).
   - `data`: the qualities of the training and validation studies.
   - `optimizer` and `scheduler`: a `torch.optim` optimizer and (optional) `torch.optim.lr_scheduler` scheduler by name, with their parameters.
   - `training`: epochs, gradient clipping, validation and checkpoint intervals, and the seed.

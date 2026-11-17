@@ -1,12 +1,13 @@
 {
     "geometry": "Parallel3dAxisGeometry",
     "nDetectorCols": 256,
-    "nDetectorRows": 96,
-    "DetectorColExtent": 800.0,
-    "DetectorRowExtent": 320.0,
-    "GantrySpeed": 1.5707963267948966, 
+    "nDetectorRows": 50,
+    "DetectorColExtent": 500.0,
+    "DetectorRowExtent": 150.0,
+    "GantrySpeed": 0.62831853071, 
     "nViews": 256,
-    "Flux": 2.5e12,
+    "AngularOverlap": 0.31415926535,
+    "Flux": 1e12,
     "rotAxis": [1.0, 0.0, 0.0],
     "source_radius": null,
     "det_radius": null

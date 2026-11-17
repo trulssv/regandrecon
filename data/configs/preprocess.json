@@ -7,7 +7,14 @@
     "HU_RANGE": [-1024, 3072],
     "mu_wa_mm": 0.019,
     "mu_air_mm": 2.3e-5,
-    
+
+    "study_filter": {
+        "object_hu": -500.0,
+        "min_component_voxels": 1000,
+        "max_axial_extent_mm": 150.0,
+        "max_fov_diameter_mm": 500.0
+    },
+
 
     "train_val_test_split": {
         "train": 0.7,

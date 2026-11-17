@@ -175,9 +175,10 @@ class RegAndReconDataset(Dataset):
         "study_id": the study id,
         "volume": (T, D, H, W) attenuation values in mm^-1, only if load_volume is set.
         "fbp": (T, D, H, W) the FBP of each time bin's sinogram in mm^-1, only if load_fbp is set (e.g. for the FBP initialization of HLPD).
+    With study_ids, only those studies are included.
     """
     def __init__(self, qualities: list[str], mode: str, data_root: Path = DEFAULT_SIMULATED_ROOT, load_volume: bool = False, noise: Callable[[torch.Tensor], torch.Tensor] | None = None,
-                 load_fbp: bool = False)->None:
+                 load_fbp: bool = False, study_ids: Iterable[str] | None = None)->None:
         super().__init__()
         assert mode in ["train", "val", "test"], f"Invalid mode {mode}. Expected one of ['train', 'val', 'test']."
         assert all(q in ["high", "low", "medium"] for q in qualities), f"Invalid quality in {qualities}. Expected all qualities to be one of ['high', 'low', 'medium']."
@@ -193,6 +194,12 @@ class RegAndReconDataset(Dataset):
 
         # Only studies that the data pipeline has finished are included.
         self.study_dirs = sorted(d for q in qualities for d in (data_root / q / mode).glob("*/") if (d / "done").exists())
+        # Optionally only a given subset of them (the study directories are named by study id), e.g. the fixed subset of a training run.
+        if study_ids is not None:
+            study_ids = set(study_ids)
+            missing = study_ids - {d.name for d in self.study_dirs}
+            assert not missing, f"Studies {sorted(missing)} are not finished '{mode}' studies of qualities {qualities} under {data_root}."
+            self.study_dirs = [d for d in self.study_dirs if d.name in study_ids]
 
     def __len__(self)->int:
         return len(self.study_dirs)
@@ -228,7 +235,9 @@ def collate_time_list(batch: list[dict]) -> dict:
     collated = {"meta": [item["meta"] for item in batch], "study_id": [item["study_id"] for item in batch]}
     for key in ("sinogram", "volume", "fbp"):
         if key in batch[0]:
-            collated[key] = list(torch.stack([item[key] for item in batch]).unbind(1))  # (B, T, ...) -> T x (B, ...)
+            # NOTE: one stack per time bin rather than unbinding a (B, T, ...) stack: the DataLoader's pin_memory pins the whole storage of
+            # each tensor, so T views into one storage would pin (and copy) it T times (25 GiB of host memory per process for batch_size 2).
+            collated[key] = [torch.stack([item[key][t] for item in batch]) for t in range(len(batch[0][key]))]  # T x (B, ...)
     return collated
 
 

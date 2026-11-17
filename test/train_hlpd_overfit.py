@@ -3,10 +3,11 @@ Overfits an HLPDModel to a single simulated study, as a check that the model and
 
 The model reconstructs the time bins f_t, the cyclic motion v_t from time bin t to t+1 mod T, and the predictions w_t = W(f_{t-1}, v_{t-1})
 of each time bin by the motion from the sinogram g, and is trained with the joint reconstruction and registration loss (model/hlpd_loss.py):
-    --domain image       supervised:    sum_t ||x_t - f_t||^2      + lambda_c ||w_t - f_t||^2 + lambda_r ||x_t - w_t||^2     + lambda ||L v_t||^2, with x_t the ground truth volumes
-    --domain projection  unsupervised:  sum_t ||g_t - T_t f_t||^2  + lambda_c ||w_t - f_t||^2 + lambda_r ||g_t - T_t w_t||^2 + lambda ||L v_t||^2, with T_t the ray transform of time bin t
-where the registered data term (lambda_r) also checks the reconstructions moved over more time bins if the geometry needs them for complete
-data, and an optional window term (lambda_w) the mean of neighbouring time bins, see model/hlpd_loss.py.
+    --domain image       supervised:    sum_t ||x_t - f_t||^2      + lambda_c ||w_t - f_t||^2 + lambda ||L v_t||^2, with x_t the ground truth volumes
+    --domain projection  unsupervised:  sum_t ||g_t - T_t f_t||^2  + lambda_c ||w_t - f_t||^2 + lambda ||L v_t||^2, with T_t the ray transform of time bin t
+where the coupling term (lambda_c) also couples f_t to the next time bins moved back, and to more time bins on either side if the geometry
+needs them for complete data, and the optional registered data term (lambda_r, ||y_t - P_t w_t||^2 and its gaps) and window term (lambda_w, the mean of
+neighbouring time bins) are added, see model/hlpd_loss.py.
 The image domain errors of the reconstructions and of their predictions are logged in both cases, so that convergence can be compared.
 
 Uses the full resolution study and its stored sinogram, so the ray transform is built from the config the data was simulated with.
@@ -28,7 +29,7 @@ import torch
 
 from data.config import DEFAULT_SIMULATED_ROOT
 from data.loaders import RegAndReconDataset, collate_time_list
-from model.build import HLPDConfig, LossParams, build_hlpd, configure_cuda, set_geometry, simulation_mu_water, simulation_ray_trafo_params
+from model.build import HLPDConfig, LossParams, build_hlpd, configure_cuda, select_gpu, set_geometry, simulation_mu_water, simulation_ray_trafo_params
 from model.hlpd import ConvStackParams, DeformParams, HLPDBlockParams, HLPDUnrolledParams, NormalizationParams
 from tracking.profiling import StepStats, make_profiler, module_time_table
 from tracking.run import start_run
@@ -49,7 +50,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--num-iters", type=int, default=10, help="Number of unrolled HLPD iterations.")
     parser.add_argument("--hidden-channels", type=int, nargs="*", default=[32, 32, 32], help="Hidden channels of each ConvStack, must be divisible by 4 (GroupNorm).")
     parser.add_argument("--recurrent", action=argparse.BooleanOptionalAction, default=True, help="Recurrent in time. The non-recurrent model stacks all time bins as channels, which is very memory hungry at full resolution.")
-    parser.add_argument("--shared-time", action=argparse.BooleanOptionalAction, default=True, help="Recurrent mode: share the nets across time bins.")
+    parser.add_argument("--shared-time", action=argparse.BooleanOptionalAction, default=False, help="Recurrent mode: share the nets across time bins.")
     parser.add_argument("--shared-iters", action=argparse.BooleanOptionalAction, default=False, help="Share the HLPD block across iterations.")
     parser.add_argument("--grad-checkpointing", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--integration-steps", type=int, default=7)
@@ -57,18 +58,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--intensity", choices=["physical", "water"], default="water", help="Units of the images in the HLPD iterations, see model.hlpd.NormalizationParams. The output is in mm^-1 in both modes.")
     parser.add_argument("--fbp-init", action=argparse.BooleanOptionalAction, default=True, help="Initialize f with the FBP and h with the data, instead of zeros.")
     # loss and optimization
-    parser.add_argument("--domain", choices=["image", "projection"], default="projection")
-    parser.add_argument("--lambda-coupling", type=float, default=1.0)
-    parser.add_argument("--lambda-registered", type=float, default=2.0)
-    parser.add_argument("--registered-gaps", type=int, default=4, help="Number of next time bins in the registered data term, by default the number the geometry needs for complete data.")
+    parser.add_argument("--domain", choices=["image", "projection"], default="image")
+    parser.add_argument("--lambda-coupling", type=float, default=5.0)
+    parser.add_argument("--coupling-gaps", type=int, default=3, help="Number of time bins on either side in the coupling term, by default the number the geometry needs for complete data.")
+    parser.add_argument("--lambda-registered", type=float, default=0.0)
+    parser.add_argument("--registered-gaps", type=int, default=None, help="Number of next time bins in the registered data term, by default the number the geometry needs for complete data.")
     parser.add_argument("--lambda-window", type=float, default=0.0)
     parser.add_argument("--window-k", type=int, default=1)
-    parser.add_argument("--lambda-reg", type=float, default=1e-4)
+    parser.add_argument("--lambda-reg", type=float, default=1e-3)
     parser.add_argument("--helmholtz", type=float, nargs=3, default=[1.0, 1.0, 1.0], metavar=("ALPHA", "GAMMA", "BETA"))
     parser.add_argument("--lr", type=float, default=5e-5)
     parser.add_argument("--steps", type=int, default=1000)
     # execution
-    parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
+    parser.add_argument("--device", default="auto", help="'auto' for the first currently free GPU (less than 1 GB in use and idle, see "
+                        "model.build.free_gpus; an error if none is free, the CPU without CUDA), or e.g. 'cuda:2' or 'cpu'.")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--log-every", type=int, default=10)
     parser.add_argument("--profile", action="store_true", help="Record a few steps with torch.profiler and report the time per module.")
@@ -99,7 +102,13 @@ def load_study(data_root: Path, quality: str, mode: str, idx: int, device: torch
 def main() -> None:
     args = parse_args()
     configure_cuda()
-    device = torch.device(args.device)
+    if args.device == "auto":
+        device = select_gpu() if torch.cuda.is_available() else torch.device("cpu")
+    else:
+        device = torch.device(args.device)
+        if device.type == "cuda":
+            device = select_gpu(gpus=str(device.index if device.index is not None else torch.cuda.current_device()))
+    logger.info("Running on %s.", device)
     torch.manual_seed(args.seed)
 
     g, x_true, fbp, meta = load_study(args.data_root, args.quality, args.mode, args.study_idx, device, load_fbp=args.fbp_init)
@@ -113,8 +122,10 @@ def main() -> None:
         deform=DeformParams(N=args.integration_steps, integration="euler"),
         normalization=NormalizationParams(operator=args.normalize_operator, intensity=args.intensity),
         zero_init=not args.fbp_init,
-        loss=LossParams(domain=args.domain, lambda_coupling=args.lambda_coupling, lambda_registered=args.lambda_registered, registered_gaps=args.registered_gaps,
-                        lambda_window=args.lambda_window, window_k=args.window_k, lambda_reg=args.lambda_reg, helmholtz=tuple(args.helmholtz)),
+        # NOTE: the flat weights of the command line (a zero weight excludes the registered and window terms), see LossParams.from_dict.
+        loss=LossParams.from_dict({"domain": args.domain, "lambda_coupling": args.lambda_coupling, "coupling_gaps": args.coupling_gaps,
+                                   "lambda_registered": args.lambda_registered, "registered_gaps": args.registered_gaps, "lambda_window": args.lambda_window,
+                                   "window_k": args.window_k, "lambda_reg": args.lambda_reg, "helmholtz": args.helmholtz}),
     )
     ray_trafo_params = simulation_ray_trafo_params(args.data_root)
 
@@ -184,6 +195,8 @@ def main() -> None:
                 "registered_loss": loss.registered_loss.item(),
                 "window_loss": loss.window_loss.item(),
                 "regularization_loss": loss.regularization_loss.item(),
+                "temporal_loss": loss.temporal_loss.item(),
+                "supervised_motion_loss": loss.supervised_motion_loss.item(),
                 "image_mse": image_mse,
                 "warp_mse": warp_mse,
                 **stats,

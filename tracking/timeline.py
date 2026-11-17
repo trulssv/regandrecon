@@ -170,8 +170,8 @@ def phases(events: list[RegionEvent]) -> list[tuple[str, float, float]]:
 
 
 # Key steps of the timing plot, in execution order. Forward regions are summed over time bins and iterations. They must not overlap,
-# as the plot sums them: e.g. loss/registered includes its warps, which are labeled loss/registered/deform (for the profiler) but are
-# not a key step of their own.
+# as the plot sums them: e.g. loss/coupling includes its warps (shared with loss/registered), which are labeled loss/coupling/deform
+# (for the profiler) but are not a key step of their own.
 #   hlpd/*:    the updates of the HLPD block (model/hlpd.py), with hlpd/deform the warp w_{t+1} = W(f_t, v_t) after each motion update,
 #   loss/*:    the terms of HLPDLoss (model/hlpd_loss.py), the registered and window terms only when they are switched on,
 #   loss/deform, loss/ray_trafo: LDDMMloss (operators/lddmm/lddmm_loss.py), which the HLPD training no longer uses.

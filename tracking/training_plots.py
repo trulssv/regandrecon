@@ -27,6 +27,8 @@ BACKWARD_COLOR = "#DD8452"
 OTHER_COLOR = "#8C8C8C"
 REGISTERED_COLOR = "#55A868"
 WINDOW_COLOR = "#8172B3"
+TEMPORAL_COLOR = "#C44E52"
+SUPERVISED_MOTION_COLOR = "#937860"
 
 
 def _save_atomic(fig: Figure, path: Path) -> None:
@@ -121,11 +123,14 @@ def plot_step_times(history: list[dict[str, float]], path: Path) -> None:
 def plot_losses(history: list[dict[str, float]], path: Path, zero_prediction_mse: float | None = None, val_history: list[dict[str, float]] | None = None) -> None:
     """The losses (log scale) and the image domain errors of the reconstructions f (image_mse) and of their predictions w by the motion
     (warp_mse) over the training steps. Loss terms and errors missing from the history are skipped. val_history, if given, holds the
-    validation metrics (same keys, with the step they were computed at) and is drawn as markers on top."""
+    validation metrics (same keys, with the step they were computed at) and is drawn as markers on top. With the training stage of each
+    step in the history ("stage", see train/stages.py), the first step of each later stage is marked with a vertical line, as the loss
+    terms (and so the total) change between stages."""
     steps = [h["step"] for h in history]
     fig, (ax_loss, ax_mse) = plt.subplots(1, 2, figsize=(12, 4))
     for key, color in (("total_loss", "k"), ("data_loss", FORWARD_COLOR), ("coupling_loss", OTHER_COLOR), ("registered_loss", REGISTERED_COLOR),
-                       ("window_loss", WINDOW_COLOR), ("regularization_loss", BACKWARD_COLOR)):
+                       ("window_loss", WINDOW_COLOR), ("regularization_loss", BACKWARD_COLOR),
+                       ("temporal_loss", TEMPORAL_COLOR), ("supervised_motion_loss", SUPERVISED_MOTION_COLOR)):
         if key not in history[-1] or not any(h[key] > 0 for h in history):  # also skips the terms that are switched off
             continue
         ax_loss.plot(steps, [h[key] for h in history], color=color, lw=1, label=key + (" (unweighted)" if key != "total_loss" and key != "data_loss" else ""))
@@ -152,8 +157,11 @@ def plot_losses(history: list[dict[str, float]], path: Path, zero_prediction_mse
     ax_mse.set_xlabel("step")
     ax_mse.set_title(f"Image domain error (step {steps[-1]}: {history[-1]['image_mse']:.3g})", fontsize=10)
     ax_mse.legend(fontsize=8, frameon=False)
+    stage_starts = [h["step"] for prev, h in zip(history, history[1:]) if "stage" in h and h["stage"] != prev.get("stage")]
     for ax in (ax_loss, ax_mse):
         ax.grid(alpha=0.3, which="both", lw=0.5)
+        for s in stage_starts:
+            ax.axvline(s, color=OTHER_COLOR, ls=":", lw=1)
     _save_atomic(fig, path)
 
 

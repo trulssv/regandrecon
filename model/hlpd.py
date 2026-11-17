@@ -1,4 +1,4 @@
-from typing import Tuple, List, overload, Literal, cast
+from typing import Iterable, Tuple, List, overload, Literal, cast
 from dataclasses import dataclass, asdict
 # torch imports
 
@@ -61,6 +61,7 @@ class RayTrafoParams:
     DetectorColExtent: float = 908.8  # in mm
     GantrySpeed: float = 2 * torch.pi  # in radians per time unit
     nViews: int = 512
+    AngularOverlap: float = 0.0  # in radians, added to both ends of each time bin's arc
     Flux: float = 10e14
     source_radius: float = 540
     det_radius: float = 950
@@ -149,6 +150,12 @@ class ConvStack(nn.Module):
             nn.init.zeros_(final_conv.weight)
             assert final_conv.bias is not None
             nn.init.zeros_(final_conv.bias)
+
+    def outputs_zero(self) -> bool:
+        """Whether the net outputs zero for every input, i.e. its final conv (which has no activation, dropout or norm) is zero, as
+        with zero_init_final before it is trained."""
+        final_conv = cast(ConvBlock, self.blocks[-1]).conv
+        return not final_conv.weight.any() and (final_conv.bias is None or not final_conv.bias.any())
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Apply the CNN module to the input tensor."""
@@ -241,6 +248,12 @@ class HLPDBlock(nn.Module):
     The motion is cyclic: v_t maps time bin t to the next one, t+1 mod T, and w_t is the prediction of time bin t by the motion,
     w_{t+1} = W(f_t, v_t) = f_t o exp(v_t)^{-1}, so that w_0 = W(f_{T-1}, v_{T-1}) closes the cycle. The primal net of time bin t
     gets the prediction w_t, and the motion net the image f_{t+1} that v_t should map f_t to and its previous prediction w_{t+1}.
+
+    With skip_motion (set by HLPDModel.set_trainable), the motion nets and the warps are skipped: v keeps its previous iterate and
+    w_{t+1} = f_t. This is the same as running them when the motion nets are frozen and output zero (e.g. in a reconstruction stage of
+    the training before the motion is trained, see train/stages.py), as v then stays at its zero initialization and W(f, 0) = f, up to
+    the rounding of the spline prefilter of the grid_pull backend (relative 6e-5). It saves their forward pass, their recompute with
+    gradient checkpointing and their backward pass, which still runs through frozen nets to their inputs.
     """
     def __init__(
             self,
@@ -259,6 +272,7 @@ class HLPDBlock(nn.Module):
         self.time_steps = time_steps
         self.recurrent = recurrent
         self.shared = shared
+        self.skip_motion = False    # see the class docstring and HLPDModel.set_trainable
 
         # Define blocks
 
@@ -332,6 +346,9 @@ class HLPDBlock(nn.Module):
                     w_t                          # prediction of the current time step by the motion from the previous time step
                 ], dim=1)
                 ).squeeze(1)
+
+        if self.skip_motion:
+            return f_t, h_t, v_prev, f_t
 
         with region("hlpd/motion_net"):
             v_t = v_prev + sigma_module(
@@ -448,6 +465,9 @@ class HLPDBlock(nn.Module):
                         Tadjh_s,     # adjoint of the updated dual variable
                         w_s          # prediction by the motion, previous iteration
                     ], dim=1))).unbind(dim=1))
+
+            if self.skip_motion:
+                return (f_pred, h_pred, list(v), f_pred[-1:] + f_pred[:-1])
 
             with region("hlpd/motion_net"):
                 v_pred: list[torch.Tensor] = list((v_s + self.motion_net(
@@ -619,6 +639,30 @@ class HLPDModel(nn.Module):
         self.unrolled_model = HLPDUnrolled(hlpd_iter_model=hlpd_block, **asdict(unrolled_params)).to(device)
 
 
+
+    NET_GROUPS = ("dual", "primal", "motion")
+
+    def set_trainable(self, groups: Iterable[str]) -> None:
+        """Trains only the nets of the given groups ("dual", "primal" and "motion", see NET_GROUPS) in all blocks, and freezes the others,
+        e.g. to train the reconstruction and the motion in separate stages (see train/stages.py). Shared nets are set once per group.
+
+        If the motion nets are frozen and all output zero (untrained, see ConvStack.outputs_zero), the motion stays zero, and the blocks
+        skip the motion nets and the warps (see HLPDBlock and skip_motion). Call it again after loading other weights."""
+        groups = set(groups)
+        assert groups <= set(self.NET_GROUPS), f"Unknown nets {sorted(groups - set(self.NET_GROUPS))}. Expected some of {self.NET_GROUPS}."
+        blocks = list(self.unrolled_model.hlpd_model_list)
+        for block in blocks:
+            for group in self.NET_GROUPS:
+                getattr(block, f"{group}_net").requires_grad_(group in groups)
+        motion_nets = [net for block in blocks for net in (block.motion_net if isinstance(block.motion_net, nn.ModuleList) else [block.motion_net])]
+        skip = "motion" not in groups and all(cast(ConvStack, net).outputs_zero() for net in motion_nets)
+        for block in blocks:
+            block.skip_motion = skip
+
+    @property
+    def skip_motion(self) -> bool:
+        """Whether the blocks skip the motion nets and the warps, see set_trainable."""
+        return all(block.skip_motion for block in self.unrolled_model.hlpd_model_list)
 
     def set_geometry(self, meta: dict):
         """We have to set the spatial geometry parameters dynamically for each volume since the acqusition protocols differed for the scans.

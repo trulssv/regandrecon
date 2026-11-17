@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Sequence
 
 import matplotlib.pyplot as plt
+from matplotlib.axes import Axes
 import torch
 from matplotlib.animation import FuncAnimation, PillowWriter
 
@@ -261,7 +262,9 @@ def plot_deformed_grid(
     plane: str = "axial",
     slice_idx: int | None = None,
     savepath: Path = PLOT_DIR / "deformed_grid.png",
-) -> Path:
+    ax: Axes | None = None,
+    title: str | None = None,
+) -> Path | None:
     """
     Plot a deformed grid based on the given deformation field.
 
@@ -278,6 +281,10 @@ def plot_deformed_grid(
         index. Ignored for a 2D deformation field.
     - savepath: str, optional
         The path to save the plotted deformed grid. Default is "deformed_grid.png".
+    - ax: Axes, optional
+        The axes to draw on, e.g. a panel of a larger figure. The figure is then neither saved nor closed, and None is returned.
+    - title: str, optional
+        The title of the axes.
     """
     assert phi.dim() in (4, 5) and ((phi.dim() == 4 and phi.shape[-1] == 2) or (phi.dim() == 5 and phi.shape[-1] == 3)), f"Expected a 2D deformation or 3D deformation field of shape (B, H, W, 2) or (B, D, H, W, 3), but got {tuple(phi.shape)}."
 
@@ -307,13 +314,19 @@ def plot_deformed_grid(
     row_idx = torch.linspace(0, row_size - 1, grid_size).round().long()
     col_idx = torch.linspace(0, col_size - 1, grid_size).round().long()
 
-    fig, ax = plt.subplots()
+    own_figure = ax is None
+    if ax is None:
+        fig, ax = plt.subplots()
     for i in row_idx:
         ax.plot(phi_px[0, i, :, 0], phi_px[0, i, :, 1], 'r', linewidth=0.8)
     for j in col_idx:
         ax.plot(phi_px[0, :, j, 0], phi_px[0, :, j, 1], 'r', linewidth=0.8)
     ax.set_aspect('equal')
     ax.invert_yaxis()  # match imshow's default origin='upper' (row axis increases downward)
+    if title is not None:
+        ax.set_title(title)
+    if not own_figure:
+        return None
 
     savepath = Path(savepath)
     os.makedirs(savepath.parent, exist_ok=True)

@@ -10,6 +10,8 @@ SIMULATED_ROOT: Path = Path(os.environ.get("REGANDRECON_SIMULATED_ROOT", DATA_RO
 DATA_DIR: Path = Path(__file__).resolve().parent
 CONFIG_DIR: Path = DATA_DIR / "configs"
 QUALITY_ASSESSMENT_PATH: Path = DATA_DIR / "quality_assessment.json"
+# Physical extent of every raw study, written by data/extent.py and read by the study_filter of the pipeline.
+STUDY_EXTENTS_PATH: Path = DATA_DIR / "study_extents.json"
 PREPROCESS_CFG_PATH: Path = CONFIG_DIR / "preprocess.json"
 
 # Default ray transform configs per scanner geometry. Data simulated with a geometry is stored under SIMULATED_ROOT / <geometry>.

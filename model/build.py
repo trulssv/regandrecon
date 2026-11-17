@@ -1,57 +1,27 @@
 """
 Builds the HLPD model and its loss (model/hlpd_loss.py) from a config, shared by the training scripts (train/train.py, test/train_hlpd_overfit.py).
 
-The config holds the architecture and loss parameters, as dicts of the dataclasses in model/hlpd.py and LossParams below:
-    {"unrolled": {...}, "block": {...}, "conv_stack": {...}, "deform": {...}, "normalization": {...}, "loss": {...}, "zero_init": bool}
+The config holds the architecture and loss parameters, as dicts of the dataclasses in model/hlpd.py and of LossParams in model/hlpd_loss.py
+(one section per loss term, see there):
+    {"unrolled": {...}, "block": {...}, "conv_stack": {...}, "deform": {...}, "normalization": {...}, "motion": {...}, "loss": {...}, "zero_init": bool}
+The motion section (MotionParams in model/motion.py) selects the motion nets: the ConvStack (the default), a U-net, and/or the LDDMM-styled
+motion update, e.g. {"net": "unet", "unet": {"channels": [16, 32, 64]}, "lddmm": {"method": "right", "adjoint_scale": 86.0}}.
 The ray transform is not part of it: it must match the geometry the data was simulated with, see simulation_ray_trafo_params.
 """
 import json
 import logging
-import os
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 import torch
 
+from model.gpus import configure_cuda, free_gpus, gpu_usage, select_gpu  # noqa: F401, re-exported for the training scripts
 from model.hlpd import ConvStackParams, DeformParams, HLPDBlockParams, HLPDModel, HLPDUnrolledParams, NormalizationParams, RayTrafoParams
-from model.hlpd_loss import HLPDLoss
+from model.motion import MotionParams, apply_motion_config
+from model.hlpd_loss import HLPDLoss, LossParams  # noqa: F401, LossParams re-exported for the training scripts
 from operators.lddmm.helmholtz import HelmholtzOperator
 
 logger = logging.getLogger(__name__)
-
-
-def configure_cuda(exact_fp32: bool = False) -> None:
-    """Settings for the training scripts, to be called before anything is allocated on the GPU (see model/PERFORMANCE.md):
-    - expandable segments in the caching allocator, which avoids most of the fragmentation of the large, differently sized
-      activations of the volume and sinogram nets.
-    - cuDNN autotuning, which picks the fastest convolution algorithms for the (fixed) volume and sinogram shapes on the first
-      step (about 25% faster steps at full resolution). The chosen algorithms may differ between runs.
-    - exact_fp32: full fp32 instead of TF32 convolutions (cuDNN's default). TF32's 10 bit mantissa is amplified by the large
-      sinogram values over the recurrent updates: after one forward pass at full resolution, f differed by 0.3% from fp32, and by
-      1.4% between two TF32 algorithms, so with autotuning TF32 results also depend on the algorithms that were picked. fp32 is
-      bitwise independent of the algorithm, but makes a step about 45% slower."""
-    if torch.cuda.is_initialized():
-        logger.warning("configure_cuda was called after CUDA was initialized, so the allocator settings have no effect.")
-    os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
-    torch.backends.cudnn.benchmark = True
-    if exact_fp32:
-        torch.backends.cudnn.allow_tf32 = False
-
-
-@dataclass
-class LossParams:
-    domain: str = "image"                                               # "image" (supervised, needs volumes) or "projection" (unsupervised)
-    lambda_coupling: float = 1.0                                        # weight of the coupling ||w_t - f_t||^2 of the reconstructions and their predictions by the motion
-    lambda_registered: float = 1.0                                      # weight of the registered data term, the reconstructions moved to the next time bins against their data
-    registered_gaps: int | None = None                                  # number of next time bins in the registered data term, None for the number the geometry needs for complete data
-    lambda_window: float = 0.0                                          # weight of the window term, the mean of 2K+1 time bins against their data (biased towards no motion, a warm-up at most)
-    window_k: int = 1                                                   # K of the window term
-    lambda_reg: float = 1e-6                                            # weight of the Helmholtz regularization of the velocity fields
-    helmholtz: tuple[float, float, float] = (1.0, 1.0, 1.0)             # (alpha, gamma, beta) of the Helmholtz operator
-
-    def __post_init__(self) -> None:
-        assert self.domain in ("image", "projection"), f"Invalid loss domain {self.domain}. Expected 'image' or 'projection'."
-        self.helmholtz = tuple(self.helmholtz)  # type: ignore[assignment]
 
 
 @dataclass
@@ -61,6 +31,7 @@ class HLPDConfig:
     conv_stack: ConvStackParams = field(default_factory=ConvStackParams)
     deform: DeformParams = field(default_factory=DeformParams)
     normalization: NormalizationParams = field(default_factory=NormalizationParams)
+    motion: MotionParams = field(default_factory=MotionParams)
     loss: LossParams = field(default_factory=LossParams)
     zero_init: bool = True                                              # zero initialization of (f, h), otherwise f is initialized with the FBP and h with the data
 
@@ -72,7 +43,8 @@ class HLPDConfig:
             conv_stack=ConvStackParams(**config.get("conv_stack", {})),
             deform=DeformParams(**config.get("deform", {})),
             normalization=NormalizationParams(**config.get("normalization", {})),
-            loss=LossParams(**config.get("loss", {})),
+            motion=MotionParams.from_dict(config.get("motion") or {}),
+            loss=LossParams.from_dict(config.get("loss", {})),
             zero_init=config.get("zero_init", True),
         )
 
@@ -99,14 +71,13 @@ def build_hlpd(config: HLPDConfig, ray_trafo_params: RayTrafoParams, T: int, sha
     config.block.time_steps = T
     model = HLPDModel(config.unrolled, config.block, config.conv_stack, ray_trafo_params, config.deform, T=T, shape=shape,
                       zero_init=config.zero_init, normalization=config.normalization, mu_water=mu_water, device=device)
+    apply_motion_config(model, config.motion, config.conv_stack)
 
     # NOTE: the extent of the Helmholtz operator is set per study in set_geometry.
-    alpha, gamma, beta = config.loss.helmholtz
+    alpha, gamma, beta = config.loss.regularization.helmholtz
     helmholtz_op = HelmholtzOperator(dim=3, alpha=alpha, gamma=gamma, beta=beta, extent=None, device=device)
     # NOTE: the loss shares the model's units, so that it is computed with the same normalization as the iterations.
-    lp = config.loss
-    loss = HLPDLoss(helmholtz_op, model.units, model.deform, domain=lp.domain, lambda_coupling=lp.lambda_coupling, lambda_registered=lp.lambda_registered,
-                    registered_gaps=lp.registered_gaps, lambda_window=lp.lambda_window, window_k=lp.window_k, lambda_reg=lp.lambda_reg)
+    loss = HLPDLoss(helmholtz_op, model.units, model.deform, config.loss)
     return model, loss
 
 

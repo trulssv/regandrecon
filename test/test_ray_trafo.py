@@ -363,6 +363,22 @@ def test_bins_for_complete_data_cone_beam_needs_a_short_scan():
     assert rt.bins_for_complete_data() == 3
 
 
+@pytest.mark.parametrize("overlap, expected", [(0.0, 4), (torch.pi / 8, 3), (torch.pi / 4, 2), (3 * torch.pi / 8, 1)])
+def test_angular_overlap(overlap, expected):
+    """AngularOverlap extends each bin's arc on both ends with the same number of views, so fewer consecutive bins give complete data."""
+    rt = RayTransform(geometry="Parallel3dAxisGeometry", nDetectorCols=8, DetectorColExtent=240.0, GantrySpeed=torch.pi / 4, nViews=8,
+                      Flux=1e14, nDetectorRows=4, DetectorRowExtent=160.0, rotAxis=(1.0, 0.0, 0.0), source_radius=None, det_radius=None,
+                      extent=None, shape=None, AngularOverlap=overlap)
+    rt._init_ray_transform((4, 6, 6), (160.0, 200.0, 240.0), [1.0] * 8)
+    for t, p in enumerate(rt.angular_discretizations):
+        assert p.shape == (8,)
+        assert float(p.min_pt[0]) == pytest.approx(t * torch.pi / 4 - overlap)
+        assert float(p.max_pt[0]) == pytest.approx((t + 1) * torch.pi / 4 + overlap)
+    assert rt.bin_arcs() == pytest.approx([torch.pi / 4 + 2 * overlap] * 8)
+    assert rt.bins_for_complete_data() == expected
+    assert rt.forward_bin(torch.rand(1, 4, 6, 6), 0).shape == (1, 8, 8, 4)
+
+
 def test_bins_for_complete_data_with_unequal_bins():
     from operators.tomo.ray_trafo import bins_for_complete_data
     assert bins_for_complete_data([1.0, 2.0, 1.0, 2.0], 3.0) == 2

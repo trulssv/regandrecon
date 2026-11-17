@@ -72,6 +72,7 @@ DEFAULT_CONFIG = {
     "DetectorColExtent": 908.8, # in mm
     "GantrySpeed": 2 * torch.pi, # in radians per time unit
     "nViews": 512,
+    "AngularOverlap": 0.0, # in radians, added to both ends of each time bin's arc
     "Flux": 10e14,
     "source_radius": 540,
     "det_radius": 950,  
@@ -173,12 +174,13 @@ def _projection_module(ray_trafo: tomo.RayTransform, adjoint: bool = False) -> t
     return OperatorModule(ray_trafo.adjoint if adjoint else ray_trafo)
 
 
-def bins_for_complete_data(arcs: Sequence[float], required_arc: float) -> int:
+def bins_for_complete_data(arcs: Sequence[float], required_arc: float, overlap: float = 0.0) -> int:
     """The smallest number m of consecutive time bins (cyclically) whose arcs together cover required_arc, for every window of m bins.
-    All bins if even they do not."""
+    All bins if even they do not. arcs are the non-overlapping arcs of the bins, each extended by overlap on both ends (see RayTransform's
+    AngularOverlap), so that a window of consecutive bins covers the sum of its arcs plus 2 * overlap."""
     T = len(arcs)
     for m in range(1, T + 1):
-        if all(sum(arcs[(t - i) % T] for i in range(m)) >= required_arc - 1e-6 for t in range(T)):
+        if all(sum(arcs[(t - i) % T] for i in range(m)) + 2 * overlap >= required_arc - 1e-6 for t in range(T)):
             return m
     return T
 
@@ -214,6 +216,8 @@ class RayTransform:
         # Optional detector parameters
         det_curvature_radius: Tuple[float, ...] | None=None,                                # Curvature radius of the detector. Only applicable to the non-parallel detectors. For 2D, it is Tuple[float] and for 3D cylindrical detectors, it is Tuple[float, float].
         pitch: float =0.0,                                                                  # Pitch of the helical trajectory
+        # Optional acquisition parameters
+        AngularOverlap: float = 0.0,                                                        # radians added to both ends of each time bin's arc, so that neighbouring bins share views. The views per bin are unchanged.
         # Implementation
         impl='astra_cuda',
         # Verbose flag for controlling output during computation
@@ -245,6 +249,9 @@ class RayTransform:
 
         self.det_curvature_radius = det_curvature_radius
         self.pitch = pitch
+
+        assert AngularOverlap >= 0.0, f"AngularOverlap must be non-negative, got {AngularOverlap}."
+        self.AngularOverlap = AngularOverlap
         
         self.extent = extent
         self.shape = shape
@@ -360,8 +367,10 @@ class RayTransform:
             time_steps = [time_steps]
         self.time_steps = time_steps
 
-        start_angles = torch.cumsum(torch.tensor([0] + time_steps[:-1]), dim=0) * self.GantrySpeed          # in radians    
-        stop_angles= torch.cumsum(torch.tensor(time_steps), dim=0) * self.GantrySpeed                       # in radians
+        # Each bin covers its own arc of GantrySpeed * t, extended by AngularOverlap on both ends. The number of views per bin only depends on
+        # t, so with an overlap the same views are spread over a wider arc (and the sinogram shapes do not change).
+        start_angles = torch.cumsum(torch.tensor([0] + time_steps[:-1]), dim=0) * self.GantrySpeed - self.AngularOverlap    # in radians
+        stop_angles = torch.cumsum(torch.tensor(time_steps), dim=0) * self.GantrySpeed + self.AngularOverlap                # in radians
 
         views = [t * self.nViews for t in time_steps]
 
@@ -535,13 +544,13 @@ class RayTransform:
         return torch.pi + 2 * math.atan(self.DetectorColExtent / 2 / (self.source_radius + self.det_radius))
 
     def bin_arcs(self) -> list[float]:
-        """The arc in radians that each time bin of the current geometry covers."""
+        """The arc in radians that each time bin of the current geometry covers, including the AngularOverlap on both ends."""
         assert self._geometry_key is not None, "Must initialize the ray transform first, see _init_ray_transform."
         return [float(p.max_pt[0] - p.min_pt[0]) for p in self.angular_discretizations]
 
     def bins_for_complete_data(self) -> int:
         """The number of consecutive time bins of the current geometry that together give complete data, see bins_for_complete_data."""
-        return bins_for_complete_data(self.bin_arcs(), self.required_arc())
+        return bins_for_complete_data([a - 2 * self.AngularOverlap for a in self.bin_arcs()], self.required_arc(), self.AngularOverlap)
 
     def forward_bin(self, x: torch.Tensor, t: int) -> torch.Tensor:
         """Applies the ray transform of time bin t to a single 3D volume B x D x H x W."""

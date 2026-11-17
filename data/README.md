@@ -13,23 +13,26 @@ raw 4D CT ──► triage ──► split ──► preprocess ──► projec
 | Path | Purpose |
 |---|---|
 | `config.py` | Paths (raw and simulated data roots, config files), skip list and the registry of scanner geometries. |
-| `configs/preprocess.json` | Target shape, intensity ranges, attenuation of water and air, number of time bins, split ratios and seed. |
+| `configs/preprocess.json` | Target shape, intensity ranges, attenuation of water and air, number of time bins, the study filter on the physical extent, split ratios and seed. |
 | `configs/ray_trafo/<geometry>.json` | Ray transform parameters per geometry: `parallel3d` (default) and `conebeam`. |
 | `quality_assessment.json` | Quality labels from the triage. Written by `triage.py`, read by `pipeline.py`. |
+| `extent.py` | Measures the physical extent (grid and object) of every raw study, for the study filter. |
+| `study_extents.json` | The extents per study. Written by `extent.py`, read by `pipeline.py`. |
 | `triage.py` | Manual quality assessment: shows each raw study and asks for a high, medium or low label. |
 | `triage.ipynb` | Notebook version of the triage, for when no display is available (e.g. VS Code over SSH). Takes the same `resume` option as `triage.py`. |
 | `pipeline.py` | The data pipeline: patient-grouped split, preprocessing and projection (`data_pipeline`, `make_splits`). |
 | `transforms.py` | Volume transforms (resize, normalized range → HU → attenuation in mm⁻¹) and the Poisson noise model for projections. |
 | `loaders.py` | Raw loader (`RawDataSet`, `load_study`) and quality loader (`RegAndReconDataset`, `get_quality_loader`). |
 | `utils.py` | JSON helpers. |
-| `scripts/` | `triage.sh` and `simulate.sh`. Both activate the `regandrecon` conda env and run from the repository root. |
+| `scripts/` | `triage.sh`, `extents.sh` and `simulate.sh`. Both activate the `regandrecon` conda env and run from the repository root. |
 | `denoising/`, `segmentation/` | **Currently unused.** Left over from an earlier version of the pipeline and kept for possible later use. |
 
 ## Running the pipeline
 
 ```bash
 data/scripts/triage.sh                    # 1. label every raw study (overwrites quality_assessment.json); --resume to continue a previous triage, --no-gui-input for terminal input
-data/scripts/simulate.sh                  # 2. split, preprocess and simulate the high-quality studies with the parallel3d geometry
+data/scripts/extents.sh                   # 2. measure the physical extent of every raw study (data/study_extents.json)
+data/scripts/simulate.sh                  # 3. split, preprocess and simulate the high-quality studies with the parallel3d geometry
 data/scripts/simulate.sh --qualities high medium --geometry conebeam
 ```
 
@@ -54,11 +57,12 @@ batch["meta"]      # list of B dicts: extent, voxel spacing, time steps, study i
 ## Pipeline stages
 
 1. **Triage** (`triage.py`): labels each raw study as high, medium or low quality. Entries are keyed by study id (`<patient_id>_study_<n>`) and also store the study directory, the number of time bins and the scan info.
-2. **Split** (`pipeline.make_splits`): train/val/test split grouped by patient, so all studies of a patient end up in the same split and no anatomy is shared between splits. Ratios and seed come from `configs/preprocess.json`. When more studies are labelled, patients that already have a split keep it, and only new patients are assigned. Studies whose number of time bins doesn't match `time_bins` are left out.
-3. **Preprocess** (`transforms.DataTransform`): resizes the `(T, D, H, W)` stack to `SHAPE` and maps it from the normalized range to HU and then to attenuation values in mm⁻¹, using HU = 1000 (μ − μ_water) / (μ_water − μ_air). The bottom of the HU range lies below air, so attenuation values can be slightly negative. This is intended.
-4. **Project** (`pipeline.simulate_study`): forward projects each time bin with its own `RayTransform` geometry. Each bin lasts one time unit, because no gating times are available, so a bin covers `GantrySpeed` rad (π/2 by default, limited angle) with `nViews` views. Poisson noise is added with the `Flux` of the ray transform config (`RayTransform.add_poisson_noise`), and the noisy line integrals are stored.
-5. **FBP** (`pipeline.simulate_study`): the FBP (Ram-Lak) of each time bin's noisy sinogram, used e.g. for the FBP initialization of HLPD. Computing it is slow (odl filters on the CPU), and would otherwise be paid at every training step. Studies simulated before the FBPs were stored get them on the next pipeline run, from their stored sinograms, so their noise realization is kept.
-6. **Load** (`loaders.get_quality_loader`): yields the model-side format, where time is a list and batch and space are tensors. Volumes (`load_volume`) and FBPs (`load_fbp`) are only loaded when asked for. An extra `noise` model on top of the stored noisy sinograms cannot be combined with `load_fbp`, as the stored FBP would no longer match the sinogram.
+2. **Filter** (`extent.py`, `pipeline.make_splits`): studies that do not fit the scanner are left out before splitting. The object is everything above `object_hu` (union over the gated phases, components below `min_component_voxels` dropped). A study is left out if the object is longer than `max_axial_extent_mm` along the rotation axis (detector rows) or reaches further than `max_fov_diameter_mm / 2` from it (detector columns). The thresholds are in the `study_filter` of `configs/preprocess.json`, and should match the detector of the ray transform config (for cone beam, scaled by the magnification). The left out studies and why are listed under `left_out` in `splits.json`. `test/plot_volume_extent.py` plots the extents against the detector and the filter.
+3. **Split** (`pipeline.make_splits`): train/val/test split grouped by patient, so all studies of a patient end up in the same split and no anatomy is shared between splits. Ratios and seed come from `configs/preprocess.json`. When more studies are labelled, patients that already have a split keep it, and only new patients are assigned. Studies whose number of time bins doesn't match `time_bins` are left out.
+4. **Preprocess** (`transforms.DataTransform`): resizes the `(T, D, H, W)` stack to `SHAPE` and maps it from the normalized range to HU and then to attenuation values in mm⁻¹, using HU = 1000 (μ − μ_water) / (μ_water − μ_air). The bottom of the HU range lies below air, so attenuation values can be slightly negative. This is intended.
+5. **Project** (`pipeline.simulate_study`): forward projects each time bin with its own `RayTransform` geometry. Each bin lasts one time unit, because no gating times are available, so a bin covers `GantrySpeed` rad (π/2 by default, limited angle) with `nViews` views. With an `AngularOverlap` > 0 (0 by default), each bin's arc is extended by that many radians on both ends, so neighbouring bins share part of their arc. The bin keeps its `nViews` views, spread over the wider arc. Poisson noise is added with the `Flux` of the ray transform config (`RayTransform.add_poisson_noise`), and the noisy line integrals are stored.
+6. **FBP** (`pipeline.simulate_study`): the FBP (Ram-Lak) of each time bin's noisy sinogram, used e.g. for the FBP initialization of HLPD. Computing it is slow (odl filters on the CPU), and would otherwise be paid at every training step. Studies simulated before the FBPs were stored get them on the next pipeline run, from their stored sinograms, so their noise realization is kept.
+7. **Load** (`loaders.get_quality_loader`): yields the model-side format, where time is a list and batch and space are tensors. Volumes (`load_volume`) and FBPs (`load_fbp`) are only loaded when asked for. An extra `noise` model on top of the stored noisy sinograms cannot be combined with `load_fbp`, as the stored FBP would no longer match the sinogram.
 
 ## On-disk layout
 
@@ -67,7 +71,7 @@ DATA_ROOT/patient_<id>/study_<n>/series_<...>_Gated,_<pct>%_<k>/{volume.pt, scan
 
 SIMULATED_ROOT/<geometry>/
     config.json          the simulation config (preprocessing, ray transform, time step) and its hash
-    splits.json          patient → split, and per study: split, quality, patient id, raw study dir
+    splits.json          patient → split, per study: split, quality, patient id, raw study dir, and the left out studies with the reason
     runs.jsonl           one record per pipeline run (see "Tracking parameters" below)
     logs/<run_id>.log    log output per run
     <quality>/<split>/<study_id>/

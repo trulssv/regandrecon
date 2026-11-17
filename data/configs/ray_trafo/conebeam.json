@@ -6,6 +6,7 @@
     "DetectorRowExtent": 80.0,
     "GantrySpeed": 0.15707963267948966, 
     "nViews": 512,
+    "AngularOverlap": 0.0,
     "Flux": 1e15,
     "rotAxis": [1.0, 0.0, 0.0],
     "source_radius": 540.0,

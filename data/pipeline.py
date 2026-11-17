@@ -1,6 +1,7 @@
 """
 The data pipeline (see data/README.md): builds the simulated dataset from the quality assessment of data/triage.py.
-1. Patient-grouped train-val-test split (make_splits).
+1. Patient-grouped train-val-test split (make_splits) of the studies that fit the scanner (the study_filter of configs/preprocess.json,
+   on the extents measured by data/extent.py).
 2. Preprocessing of each study to attenuation values in mm^-1 (data.transforms.DataTransform).
 3. Forward projection of each time bin with its own RayTransform geometry, with Poisson noise (RayTransform.add_poisson_noise).
 4. FBP of each time bin's (noisy) sinogram, e.g. for the FBP initialization of HLPD (data.loaders.get_quality_loader with load_fbp).
@@ -17,7 +18,8 @@ from pathlib import Path
 import torch
 from tqdm import tqdm
 
-from data.config import DEFAULT_GEOMETRY, PREPROCESS_CFG_PATH, QUALITY_ASSESSMENT_PATH, RAY_TRAFO_CFG_PATHS, SIMULATED_ROOT
+from data.config import DEFAULT_GEOMETRY, PREPROCESS_CFG_PATH, QUALITY_ASSESSMENT_PATH, RAY_TRAFO_CFG_PATHS, SIMULATED_ROOT, STUDY_EXTENTS_PATH
+from data.extent import filter_reason, load_study_extents
 from data.loaders import load_study
 from data.transforms import DataTransform
 from data.utils import load_json, save_json_atomic, study_extent
@@ -35,6 +37,8 @@ def make_splits(
         seed: int = 42,
         existing: dict | None = None,
         n_time_bins: int | None = None,
+        study_extents: dict | None = None,
+        study_filter: dict | None = None,
         ) -> dict:
     """
     Patient-grouped train-val-test split of the assessed studies: all studies of a patient end up in the same split, regardless of their quality,
@@ -50,15 +54,29 @@ def make_splits(
         seed: The seed for the patient order.
         existing: A previous output of make_splits whose patient assignments are kept.
         n_time_bins: If given, studies with a different number of time bins are left out.
+        study_extents: The extents per study id (data.extent.load_study_extents). Required with study_filter.
+        study_filter: If given, studies whose extents exceed it are left out (see data.extent.filter_reason), e.g. the "study_filter" of configs/preprocess.json.
     output:
-        The split manifest {"seed", "ratios", "patients": {patient_id: split}, "studies": {study_id: {"split", "quality", "patient_id", "study_dir"}}}.
+        The split manifest {"seed", "ratios", "patients": {patient_id: split}, "studies": {study_id: {"split", "quality", "patient_id", "study_dir"}},
+        "left_out": {study_id: reason}}.
     """
 
-    studies = {}
+    assert study_filter is None or study_extents is not None, "The study_filter needs the study extents."
+
+    studies, left_out = {}, {}
     for study_id, entry in quality_assessment.items():
         if n_time_bins is not None and entry["n_time_bins"] != n_time_bins:
-            logger.warning("Leaving out %s, expected %d time bins but got %d.", study_id, n_time_bins, entry["n_time_bins"])
+            left_out[study_id] = f"expected {n_time_bins} time bins but got {entry['n_time_bins']}"
+            logger.warning("Leaving out %s, %s.", study_id, left_out[study_id])
             continue
+        if study_filter is not None:
+            if study_id not in study_extents:
+                raise KeyError(f"No extents for {study_id}. Remeasure the study extents with data/scripts/extents.sh.")
+            reason = filter_reason(study_extents[study_id], study_filter)
+            if reason is not None:
+                left_out[study_id] = reason
+                logger.info("Leaving out %s, %s.", study_id, reason)
+                continue
         studies[study_id] = {
             "quality": entry["quality"],
             "patient_id": entry["scan_info"]["patient_id"],
@@ -87,7 +105,9 @@ def make_splits(
     for study in studies.values():
         study["split"] = patients[study["patient_id"]]
 
-    return {"seed": seed, "ratios": ratios, "patients": patients, "studies": studies}
+    if left_out:
+        logger.warning("Left out %d of %d assessed studies, see 'left_out' in the split manifest.", len(left_out), len(quality_assessment))
+    return {"seed": seed, "ratios": ratios, "patients": patients, "studies": studies, "left_out": left_out}
 
 
 def select_subset(studies: dict, ratios: dict[str, float], n: int, seed: int = 42) -> dict:
@@ -236,6 +256,11 @@ def data_pipeline(qualities: tuple[str, ...] = ("high",), geometry: str = DEFAUL
 
         # Patient-grouped train-val-test split. The split ratios and seed are recorded in splits.json.
 
+        # Studies that do not fit the scanner are left out before splitting, so the split ratios hold for the studies that are simulated.
+        # NOTE: Only studies that fit the detector of the ray transform config should pass the study_filter, which is not checked here.
+        study_filter = preprocess_cfg.get("study_filter")
+        study_extents = load_study_extents(preprocess_cfg) if study_filter is not None else None
+
         splits_path = out_root / "splits.json"
         split_cfg = preprocess_cfg["train_val_test_split"]
         splits = make_splits(
@@ -244,9 +269,12 @@ def data_pipeline(qualities: tuple[str, ...] = ("high",), geometry: str = DEFAUL
             seed=split_cfg.get("random_seed", 42),
             existing=load_json(splits_path) if splits_path.exists() else None,
             n_time_bins=preprocess_cfg["time_bins"],
+            study_extents=study_extents,
+            study_filter=study_filter,
         )
         save_json_atomic(splits_path, splits)
-        run.results.update({"quality_assessment_hash": file_hash(quality_assessment_path), "splits_hash": config_hash(splits), "simulated": [], "skipped": [],
+        run.results.update({"quality_assessment_hash": file_hash(quality_assessment_path), "splits_hash": config_hash(splits),
+                            "study_extents_hash": file_hash(STUDY_EXTENTS_PATH) if study_filter is not None else None, "simulated": [], "skipped": [],
                             "fbp_added": []})
 
         transform = DataTransform.from_config(preprocess_cfg)
